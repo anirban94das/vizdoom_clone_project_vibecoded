@@ -4,12 +4,16 @@ Run this alongside train_basic.py (separate terminal, same venv). It loads
 whichever checkpoint in models/checkpoints/ is newest, plays one episode in a
 visible window, then reloads before the next episode — so as training saves
 new checkpoints, you'll see the agent's behavior update every few episodes.
+
+Uses the same DummyVecEnv + VecFrameStack stacking as train_basic.py so the
+observation shape matches what each checkpoint was trained on.
 """
 
 import time
 from pathlib import Path
 
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 
 from envs.basic_env import make_basic_env
 
@@ -30,19 +34,20 @@ def latest_checkpoint() -> Path:
 
 
 def main() -> None:
-    env = make_basic_env(render_mode="human")
+    vec_env = DummyVecEnv([lambda: make_basic_env(render_mode="human")])
+    vec_env = VecFrameStack(vec_env, n_stack=4)
 
     while True:
         checkpoint = latest_checkpoint()
         print(f"Loading {checkpoint.name}")
         model = PPO.load(checkpoint, device="cuda")
 
-        obs, _ = env.reset()
+        obs = vec_env.reset()
         done = False
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, _, terminated, truncated, _ = env.step(action)
-            done = terminated or truncated
+            obs, _, dones, _ = vec_env.step(action)
+            done = dones[0]
             time.sleep(1 / 35)  # ViZDoom's native tic rate, for human-watchable speed
 
 
