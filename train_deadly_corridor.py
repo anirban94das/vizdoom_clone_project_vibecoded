@@ -1,11 +1,14 @@
-"""Train a PPO agent on ViZDoom's basic.wad scenario.
+"""Train a PPO agent on ViZDoom's deadly_corridor.wad scenario.
 
-First end-to-end training run for this project. Uses stable-baselines3's
-CnnPolicy on a (84, 84, 4) frame stack: envs.basic_env.make_basic_env
-produces single (84, 84, 1) grayscale frames, and VecFrameStack stacks 4 of
-them together after they cross the SubprocVecEnv process pipe (cheaper than
-stacking before, which would ship 4x the bytes per step). Progress is logged
-to TensorBoard under logs/tensorboard (`tensorboard --logdir logs/tensorboard`).
+Mirrors train_basic.py's structure and auto-resume behavior, pointed at the
+harder deadly_corridor scenario (envs.deadly_corridor_env). Checkpoints share
+models/checkpoints/ with the basic.wad run, distinguished by the
+"ppo_deadly_corridor" filename prefix; TensorBoard logs share logs/tensorboard
+under a separate run name so both scenarios are comparable side by side.
+
+Do not run this alongside train_basic.py — each spawns N_ENVS=8
+SubprocVecEnv workers, and this machine has 8 physical cores, so running both
+at once oversubscribes and slows both down.
 """
 
 import re
@@ -16,21 +19,21 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecFrameStack
 
-from envs.basic_env import make_basic_env
+from envs.deadly_corridor_env import make_deadly_corridor_env
 
-TOTAL_TIMESTEPS = 100_000
-# This machine has 8 physical cores / 16 logical (SMT). ViZDoom's engine step
-# is single-threaded CPU work, so throughput scales with physical cores more
-# than logical ones. N_ENVS=14 hit a startup race (all 14 game engines
-# booting simultaneously left one worker half-initialized) - 8, matching
-# physical cores, is both the throughput sweet spot and safer to boot.
+# deadly_corridor is a harder, sparser-reward scenario (doom_skill=5, must
+# navigate under fire) than basic.wad's ~100k-step convergence. Starting
+# higher and relying on auto-resume (below) to add more later if needed.
+TOTAL_TIMESTEPS = 300_000
+# Same physical-core reasoning as train_basic.py (unchanged hardware).
 N_ENVS = 8
 CHECKPOINT_DIR = Path("models/checkpoints")
+CHECKPOINT_PREFIX = "ppo_deadly_corridor"
 
 
 def find_latest_checkpoint() -> Path | None:
     """Return the checkpoint with the highest step count, or None if empty."""
-    checkpoints = list(CHECKPOINT_DIR.glob("ppo_basic_*_steps.zip"))
+    checkpoints = list(CHECKPOINT_DIR.glob(f"{CHECKPOINT_PREFIX}_*_steps.zip"))
     if not checkpoints:
         return None
     return max(checkpoints, key=lambda p: int(re.search(r"_(\d+)_steps", p.stem).group(1)))
@@ -40,15 +43,15 @@ def main() -> None:
     # SubprocVecEnv runs each ViZDoom instance in its own process. ViZDoom's
     # engine step is CPU-bound (software rendering), so DummyVecEnv's
     # single-process/sequential stepping left most cores idle.
-    vec_env = make_vec_env(make_basic_env, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv)
+    vec_env = make_vec_env(make_deadly_corridor_env, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv)
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
     # save_freq is per-env steps; the callback fires every N_ENVS actual
     # timesteps, so this saves roughly every 10_000 real timesteps.
     checkpoint_callback = CheckpointCallback(
         save_freq=max(10_000 // N_ENVS, 1),
-        save_path="models/checkpoints",
-        name_prefix="ppo_basic",
+        save_path=str(CHECKPOINT_DIR),
+        name_prefix=CHECKPOINT_PREFIX,
     )
 
     latest_checkpoint = find_latest_checkpoint()
@@ -71,11 +74,11 @@ def main() -> None:
 
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
-        tb_log_name="ppo_basic",
+        tb_log_name=CHECKPOINT_PREFIX,
         callback=checkpoint_callback,
         reset_num_timesteps=latest_checkpoint is None,
     )
-    model.save("models/ppo_basic")
+    model.save("models/ppo_deadly_corridor")
 
 
 if __name__ == "__main__":

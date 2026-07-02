@@ -15,30 +15,35 @@ A neural network that plays DOOM, using `E:\Code_Base\ViZDoom` as the game envir
 # Train PPO on the basic.wad scenario
 python train_basic.py
 
-# Watch training progress (reward/loss curves)
+# Train PPO on the harder deadly_corridor.wad scenario (don't run
+# simultaneously with train_basic.py — see Key files below)
+python train_deadly_corridor.py
+
+# Watch training progress (reward/loss curves) — both scenarios' runs show
+# up side by side since they share logs/tensorboard
 tensorboard --logdir logs/tensorboard
 
 # Watch the agent actually play, live, in a second terminal — reloads the
 # newest checkpoint between episodes so behavior updates as training runs
-python watch_agent.py
+python watch_agent.py                    # basic.wad
+python watch_agent_deadly_corridor.py    # deadly_corridor.wad
 ```
 
 No install step needed — `.venv` already has `torch`, `stable_baselines3`, `vizdoom`, and `gymnasium` installed (see Environment below).
 
-To resume training from a checkpoint instead of starting over:
-```python
-model = PPO.load("models/checkpoints/ppo_basic_<N>_steps", env=vec_env)
-model.learn(total_timesteps=..., reset_num_timesteps=False, tb_log_name="ppo_basic")
-```
+Both `train_basic.py` and `train_deadly_corridor.py` auto-resume: on startup each globs `models/checkpoints/<prefix>_*_steps.zip` for its own prefix (`ppo_basic` / `ppo_deadly_corridor`), picks the highest step count, and `PPO.load`s it if one exists (falling back to a fresh `CnnPolicy` otherwise). Each run then trains for `TOTAL_TIMESTEPS` *additional* steps on top of wherever the checkpoint left off — `reset_num_timesteps` is set accordingly. To force a from-scratch run, delete or move that scenario's checkpoints first.
+
+**Don't run both training scripts at once** — each spawns `N_ENVS=8` `SubprocVecEnv` workers, and this machine has 8 physical cores, so running both simultaneously oversubscribes and slows both down.
 
 ## Key files
 
-- `envs/basic_env.py` — Gymnasium env factory (`make_basic_env`) for ViZDoom's `basic.wad` scenario. Registers `VizdoomBasic-v1` via `vizdoom.gymnasium_wrapper`, strips the dict observation down to just the screen buffer (`ScreenOnlyObservation`), forces native render resolution down to `RES_160X120`, then applies grayscale → resize to 84×84 → explicit reshape back to `(84, 84, 1)` (see "Known gotchas"). `frame_skip=4` by default. Each call generates a unique per-process `doom_config_path` under `configs/` (see "Known gotchas").
-- `train_basic.py` — PPO training entry point. `CnnPolicy`, 14 parallel envs via `make_vec_env(..., vec_env_cls=SubprocVecEnv)`, frame-stacking applied afterward at the vec-env level via `VecFrameStack(n_stack=4)` (not per-env — see Performance below), 100k timesteps, `CheckpointCallback` saving to `models/checkpoints/` every ~10k timesteps, final save to `models/ppo_basic`, `device="cuda"`.
-- `watch_agent.py` — loads the newest file in `models/checkpoints/`, plays one episode with a visible window (`DummyVecEnv` + `VecFrameStack`, matching training's observation shape), reloads before the next episode. Run alongside `train_basic.py` to watch behavior evolve live without slowing training down.
-- `models/checkpoints/` — periodic checkpoints (currently populated once a training run has been started since the last update; check freshness before assuming a checkpoint is current).
-- `models/` — final saved model (`ppo_basic.zip`) — only written once, at the very end of a full `model.learn()` call.
-- `logs/` — TensorBoard logs.
+- `envs/common.py` — shared Gymnasium env factory (`make_vizdoom_env(env_id, ...)`) used by every per-scenario env module. Strips the dict observation down to just the screen buffer (`ScreenOnlyObservation`), forces native render resolution down to `RES_160X120`, then applies grayscale → resize to 84×84 → explicit reshape back to `(84, 84, 1)` (see "Known gotchas"). `frame_skip=4` by default. Each call generates a unique per-process `doom_config_path` under `configs/` (see "Known gotchas").
+- `envs/basic_env.py` / `envs/deadly_corridor_env.py` — thin per-scenario wrappers around `envs.common.make_vizdoom_env`, registering `VizdoomBasic-v1` / `VizdoomDeadlyCorridor-v1` respectively via `vizdoom.gymnasium_wrapper`. `deadly_corridor.cfg` already defines `death_penalty=100` and `doom_skill=5`, so no extra reward-shaping code is needed for that scenario yet.
+- `train_basic.py` / `train_deadly_corridor.py` — PPO training entry points, one per scenario, same structure (`CnnPolicy`, 8 parallel envs via `make_vec_env(..., vec_env_cls=SubprocVecEnv)`, frame-stacking applied afterward at the vec-env level via `VecFrameStack(n_stack=4)` — not per-env, see Performance below — `CheckpointCallback` saving to `models/checkpoints/` every ~10k timesteps under a scenario-specific prefix, final save to `models/ppo_<scenario>`, `device="cuda"`). `train_basic.py` runs 100k timesteps per invocation; `train_deadly_corridor.py` runs 300k (harder, sparser-reward scenario).
+- `watch_agent.py` / `watch_agent_deadly_corridor.py` — loads the newest checkpoint for that scenario's prefix in `models/checkpoints/`, plays one episode with a visible window (`DummyVecEnv` + `VecFrameStack`, matching training's observation shape), reloads before the next episode. Run alongside the matching `train_*.py` to watch behavior evolve live without slowing training down.
+- `models/checkpoints/` — periodic checkpoints for all scenarios, distinguished by filename prefix (`ppo_basic_*`, `ppo_deadly_corridor_*`); check freshness before assuming a checkpoint is current.
+- `models/` — final saved models (`ppo_basic.zip`, `ppo_deadly_corridor.zip`) — only written once, at the very end of a full `model.learn()` call.
+- `logs/` — TensorBoard logs, one run subdirectory per scenario/invocation.
 - `configs/` — auto-generated per-process ZDoom ini files (one per `SubprocVecEnv` worker, named by PID). Gitignored; safe to delete when nothing is running.
 - `_vizdoom.ini` — leftover from before per-process config paths were added; no longer written to by the current code, safe to ignore/delete.
 
@@ -72,10 +77,11 @@ GPU: NVIDIA RTX 3060 (6GB), CUDA build of `torch` matches it — `nvidia-smi` co
 
 ## Next steps (in order)
 
-1. Run `train_basic.py` end-to-end and confirm episode reward trends upward in TensorBoard — check `models/` and `logs/tensorboard/` for freshness before assuming this is done.
-2. Once `basic.wad` works, move to harder built-in scenarios: `deadly_corridor.wad`, then `defend_the_center.wad`.
-3. Consider reward shaping (damage dealt, kills, pickups, death penalty, discourage standing still) as scenarios get harder — this matters more than architecture size.
-4. After a working low-level controller exists, optionally revisit Option B (LLM high-level planner) — see below.
+1. ~~Run `train_basic.py` end-to-end and confirm episode reward trends upward in TensorBoard~~ — done, agent performs well on `basic.wad`.
+2. Run `train_deadly_corridor.py` end-to-end (see Key files above) and confirm episode reward trends upward / episode length stabilizes in TensorBoard before considering this scenario solved. If the built-in reward (via `death_penalty` and the scenario's internal ACS scoring) isn't enough to make progress, see step 3.
+3. Once `deadly_corridor.wad` works, move to `defend_the_center.wad` (already confirmed registered as `VizdoomDefendCenter-v1`, same `Dict(screen, gamevariables)` observation shape — same `envs/common.py` factory pattern applies).
+4. Consider reward shaping (damage dealt, kills, pickups, death penalty, discourage standing still) if a scenario's built-in reward isn't sufficient — this matters more than architecture size.
+5. After a working low-level controller exists, optionally revisit Option B (LLM high-level planner) — see below.
 
 ## Architecture decision
 
