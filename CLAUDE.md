@@ -80,8 +80,8 @@ GPU: NVIDIA RTX 3060 (6GB), CUDA build of `torch` matches it — `nvidia-smi` co
 ## Next steps (in order)
 
 1. ~~Run `train_basic.py` end-to-end and confirm episode reward trends upward in TensorBoard~~ — done, agent performs well on `basic.wad`.
-2. Run `train_deadly_corridor.py` end-to-end (see Key files above) and confirm episode reward trends upward / episode length stabilizes in TensorBoard before considering this scenario solved. If the built-in reward (via `death_penalty` and the scenario's internal ACS scoring) isn't enough to make progress, see step 3.
-3. Once `deadly_corridor.wad` works, move to `defend_the_center.wad` (already confirmed registered as `VizdoomDefendCenter-v1`, same `Dict(screen, gamevariables)` observation shape — same `envs/common.py` factory pattern applies).
+2. ~~Run `train_deadly_corridor.py` end-to-end~~ — done, baseline (`ppo_deadly_corridor` prefix) reached step 950,000 with `ep_rew_mean` climbing from -88 to +151. Now run the reward-shaped version (`kill_reward_bonus` + `exploration_bonus_per_cell`, `ppo_deadly_corridor_shaped` prefix, warm-started from that baseline) and confirm reward keeps climbing after the expected reward-scale jump/dip at the handoff.
+3. Once `deadly_corridor.wad`'s shaped-reward run looks good, move to `defend_the_center.wad` (already confirmed registered as `VizdoomDefendCenter-v1`, same `Dict(screen, gamevariables)` observation shape — same `envs/common.py` factory pattern applies, `kill_reward_bonus` likely useful there too but leave `exploration_bonus_per_cell=0` since standing still is the objective).
 4. Consider reward shaping (damage dealt, kills, pickups, death penalty, discourage standing still) if a scenario's built-in reward isn't sufficient — this matters more than architecture size.
 5. After a working low-level controller exists, optionally revisit Option B (LLM high-level planner) — see below.
 
