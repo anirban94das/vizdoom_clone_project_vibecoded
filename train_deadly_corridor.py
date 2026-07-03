@@ -1,14 +1,17 @@
 """Train a PPO agent on ViZDoom's deadly_corridor.wad scenario.
 
 Mirrors train_basic.py's structure and auto-resume behavior, pointed at the
-harder deadly_corridor scenario (envs.deadly_corridor_env). Checkpoints share
-models/checkpoints/ with the basic.wad run, distinguished by the
-"ppo_deadly_corridor" filename prefix; TensorBoard logs share logs/tensorboard
-under a separate run name so both scenarios are comparable side by side.
+harder deadly_corridor scenario (envs.deadly_corridor_env), which now
+enables reward shaping by default (kill_reward_bonus + exploration bonus —
+see envs/deadly_corridor_env.py). Because the reward function changed from
+the earlier "ppo_deadly_corridor" baseline run, this checkpoints/logs under
+a new "ppo_deadly_corridor_shaped" identity rather than silently overwriting
+that run's history, but still warm-starts from its final weights (below) so
+the already-learned visual features/aiming/movement aren't thrown away.
 
-Do not run this alongside train_basic.py — each spawns N_ENVS=8
-SubprocVecEnv workers, and this machine has 8 physical cores, so running both
-at once oversubscribes and slows both down.
+Do not run this alongside train_basic.py — each spawns N_ENVS SubprocVecEnv
+workers, and this machine has 8 physical cores, so running both at once
+oversubscribes and slows both down.
 """
 
 import re
@@ -26,14 +29,17 @@ from envs.deadly_corridor_env import make_deadly_corridor_env
 # higher and relying on auto-resume (below) to add more later if needed.
 TOTAL_TIMESTEPS = 300_000
 # Same physical-core reasoning as train_basic.py (unchanged hardware).
-N_ENVS = 8
+N_ENVS = 12
 CHECKPOINT_DIR = Path("models/checkpoints")
-CHECKPOINT_PREFIX = "ppo_deadly_corridor"
+CHECKPOINT_PREFIX = "ppo_deadly_corridor_shaped"
+# Pre-reward-shaping baseline run (step 950,000 as of this change) — used
+# only as a one-time warm start if no shaped-reward checkpoint exists yet.
+WARM_START_PREFIX = "ppo_deadly_corridor"
 
 
-def find_latest_checkpoint() -> Path | None:
-    """Return the checkpoint with the highest step count, or None if empty."""
-    checkpoints = list(CHECKPOINT_DIR.glob(f"{CHECKPOINT_PREFIX}_*_steps.zip"))
+def find_latest_checkpoint(prefix: str) -> Path | None:
+    """Return the checkpoint with the highest step count for prefix, or None."""
+    checkpoints = list(CHECKPOINT_DIR.glob(f"{prefix}_*_steps.zip"))
     if not checkpoints:
         return None
     return max(checkpoints, key=lambda p: int(re.search(r"_(\d+)_steps", p.stem).group(1)))
@@ -54,31 +60,47 @@ def main() -> None:
         name_prefix=CHECKPOINT_PREFIX,
     )
 
-    latest_checkpoint = find_latest_checkpoint()
-    if latest_checkpoint is not None:
-        print(f"Resuming from checkpoint: {latest_checkpoint}")
+    latest_shaped = find_latest_checkpoint(CHECKPOINT_PREFIX)
+    if latest_shaped is not None:
+        print(f"Resuming shaped-reward run from checkpoint: {latest_shaped}")
         model = PPO.load(
-            latest_checkpoint,
+            latest_shaped,
             env=vec_env,
             device="cuda",
             tensorboard_log="logs/tensorboard",
         )
+        reset_num_timesteps = False
     else:
-        model = PPO(
-            "CnnPolicy",
-            vec_env,
-            verbose=1,
-            tensorboard_log="logs/tensorboard",
-            device="cuda",
-        )
+        warm_start = find_latest_checkpoint(WARM_START_PREFIX)
+        if warm_start is not None:
+            # Weights carry over (visual features/aiming/movement), but the
+            # reward function underneath has changed, so timesteps/TensorBoard
+            # logging start fresh under CHECKPOINT_PREFIX — expect a visible
+            # jump/dip in the reward curve right at this handoff.
+            print(f"Warm-starting from pre-shaping checkpoint: {warm_start}")
+            model = PPO.load(
+                warm_start,
+                env=vec_env,
+                device="cuda",
+                tensorboard_log="logs/tensorboard",
+            )
+        else:
+            model = PPO(
+                "CnnPolicy",
+                vec_env,
+                verbose=1,
+                tensorboard_log="logs/tensorboard",
+                device="cuda",
+            )
+        reset_num_timesteps = True
 
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         tb_log_name=CHECKPOINT_PREFIX,
         callback=checkpoint_callback,
-        reset_num_timesteps=latest_checkpoint is None,
+        reset_num_timesteps=reset_num_timesteps,
     )
-    model.save("models/ppo_deadly_corridor")
+    model.save("models/ppo_deadly_corridor_shaped")
 
 
 if __name__ == "__main__":

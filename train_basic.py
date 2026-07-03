@@ -24,7 +24,7 @@ TOTAL_TIMESTEPS = 100_000
 # than logical ones. N_ENVS=14 hit a startup race (all 14 game engines
 # booting simultaneously left one worker half-initialized) - 8, matching
 # physical cores, is both the throughput sweet spot and safer to boot.
-N_ENVS = 8
+N_ENVS = 12
 CHECKPOINT_DIR = Path("models/checkpoints")
 
 

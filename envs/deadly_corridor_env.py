@@ -3,7 +3,9 @@
 Thin wrapper around envs.common.make_vizdoom_env — see that module for the
 shared preprocessing pipeline (grayscale, resize, reshape, per-process ZDoom
 config). deadly_corridor.cfg already defines death_penalty=100 and
-doom_skill=5, so no extra reward shaping is needed here.
+doom_skill=5, but doesn't score kills directly, so kill_reward_bonus and
+exploration_bonus_per_cell are enabled by default here to make killing
+enemies and pushing forward down the corridor explicit incentives.
 """
 
 import gymnasium as gym
@@ -13,5 +15,18 @@ from envs.common import make_vizdoom_env
 ENV_ID = "VizdoomDeadlyCorridor-v1"
 
 
-def make_deadly_corridor_env(render_mode: str | None = None, frame_skip: int = 4) -> gym.Env:
-    return make_vizdoom_env(ENV_ID, render_mode=render_mode, frame_skip=frame_skip)
+def make_deadly_corridor_env(
+    render_mode: str | None = None,
+    frame_skip: int = 4,
+    kill_reward_bonus: float = 20.0,
+    exploration_bonus_per_cell: float = 1.0,
+    exploration_cell_size: float = 32.0,
+) -> gym.Env:
+    return make_vizdoom_env(
+        ENV_ID,
+        render_mode=render_mode,
+        frame_skip=frame_skip,
+        kill_reward_bonus=kill_reward_bonus,
+        exploration_bonus_per_cell=exploration_bonus_per_cell,
+        exploration_cell_size=exploration_cell_size,
+    )
