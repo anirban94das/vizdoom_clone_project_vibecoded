@@ -40,7 +40,7 @@ def main() -> None:
     while True:
         checkpoint = latest_checkpoint()
         print(f"Loading {checkpoint.name}")
-        model = PPO.load(checkpoint, device="cuda")
+        model = PPO.load(checkpoint, env=vec_env, device="cuda")
 
         obs = vec_env.reset()
         done = False
