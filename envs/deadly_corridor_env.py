@@ -3,9 +3,11 @@
 Thin wrapper around envs.common.make_vizdoom_env — see that module for the
 shared preprocessing pipeline (grayscale, resize, reshape, per-process ZDoom
 config). deadly_corridor.cfg already defines death_penalty=100 and
-doom_skill=5, but doesn't score kills directly, so kill_reward_bonus and
-exploration_bonus_per_cell are enabled by default here to make killing
-enemies and pushing forward down the corridor explicit incentives.
+doom_skill=5, but doesn't score kills, exploration, or item pickups directly,
+so kill_reward_bonus, exploration_bonus_per_cell, and weapon_pickup_bonus are
+all enabled by default here. weapon_pickup_bonus specifically rewards picking
+up the shotgun that ShotgunGuy enemies drop on death (confirmed via the
+labels buffer — this scenario's monsters are Zombieman and ShotgunGuy).
 """
 
 import gymnasium as gym
@@ -21,6 +23,7 @@ def make_deadly_corridor_env(
     kill_reward_bonus: float = 20.0,
     exploration_bonus_per_cell: float = 1.0,
     exploration_cell_size: float = 32.0,
+    weapon_pickup_bonus: float = 15.0,
 ) -> gym.Env:
     return make_vizdoom_env(
         ENV_ID,
@@ -29,4 +32,5 @@ def make_deadly_corridor_env(
         kill_reward_bonus=kill_reward_bonus,
         exploration_bonus_per_cell=exploration_bonus_per_cell,
         exploration_cell_size=exploration_cell_size,
+        weapon_pickup_bonus=weapon_pickup_bonus,
     )

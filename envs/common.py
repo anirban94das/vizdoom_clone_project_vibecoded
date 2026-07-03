@@ -90,6 +90,36 @@ class ExplorationBonus(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
+class WeaponPickupBonus(gym.Wrapper):
+    """Adds bonus_per_weapon reward the first time each episode a new weapon
+    slot (WEAPON0..WEAPON9) is acquired. In deadly_corridor, ShotgunGuy
+    enemies drop a pickupable shotgun on death (vanilla Doom behavior) — this
+    rewards walking over and picking it up, distinct from the kill itself."""
+
+    WEAPON_VARS = [getattr(vzd.GameVariable, f"WEAPON{i}") for i in range(10)]
+
+    def __init__(self, env: gym.Env, bonus_per_weapon: float):
+        super().__init__(env)
+        self.bonus_per_weapon = bonus_per_weapon
+        self._owned: set[int] = set()
+
+    def _owned_weapons(self) -> set[int]:
+        game = self.unwrapped.game
+        return {i for i, var in enumerate(self.WEAPON_VARS) if game.get_game_variable(var) > 0}
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._owned = self._owned_weapons()
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        owned = self._owned_weapons()
+        reward += len(owned - self._owned) * self.bonus_per_weapon
+        self._owned = owned
+        return obs, reward, terminated, truncated, info
+
+
 def make_vizdoom_env(
     env_id: str,
     render_mode: str | None = None,
@@ -98,6 +128,7 @@ def make_vizdoom_env(
     kill_reward_bonus: float = 0.0,
     exploration_bonus_per_cell: float = 0.0,
     exploration_cell_size: float = 32.0,
+    weapon_pickup_bonus: float = 0.0,
 ) -> gym.Env:
     # Each SubprocVecEnv worker is a separate OS process; give it its own
     # ZDoom config file so concurrent instances don't race on the shared
@@ -128,6 +159,8 @@ def make_vizdoom_env(
         env = KillRewardBonus(env, kill_reward_bonus)
     if exploration_bonus_per_cell:
         env = ExplorationBonus(env, exploration_bonus_per_cell, exploration_cell_size)
+    if weapon_pickup_bonus:
+        env = WeaponPickupBonus(env, weapon_pickup_bonus)
     env = ScreenOnlyObservation(env)
     env = GrayscaleObservation(env, keep_dim=False)
     # ResizeObservation calls cv2.resize, which silently drops a size-1

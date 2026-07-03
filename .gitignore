@@ -1,3 +1,5 @@
 /logs/tensorboard
 /models/checkpoints
 /logs/tensorboard
+/configs
+/envs/__pycache__
