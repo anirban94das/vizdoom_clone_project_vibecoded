@@ -120,6 +120,30 @@ class WeaponPickupBonus(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
+class HitRewardBonus(gym.Wrapper):
+    """Adds bonus_per_hit on top of the scenario's built-in reward for each
+    HITCOUNT increment. HITCOUNT fires on every successful hit landed on an
+    enemy, not just kills — this rewards shooting at (and connecting with) an
+    enemy as a denser signal leading up to KillRewardBonus's kill credit."""
+
+    def __init__(self, env: gym.Env, bonus_per_hit: float):
+        super().__init__(env)
+        self.bonus_per_hit = bonus_per_hit
+        self._last_hits = 0.0
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._last_hits = self.unwrapped.game.get_game_variable(vzd.GameVariable.HITCOUNT)
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        hits = self.unwrapped.game.get_game_variable(vzd.GameVariable.HITCOUNT)
+        reward += (hits - self._last_hits) * self.bonus_per_hit
+        self._last_hits = hits
+        return obs, reward, terminated, truncated, info
+
+
 def make_vizdoom_env(
     env_id: str,
     render_mode: str | None = None,
@@ -129,6 +153,7 @@ def make_vizdoom_env(
     exploration_bonus_per_cell: float = 0.0,
     exploration_cell_size: float = 32.0,
     weapon_pickup_bonus: float = 0.0,
+    hit_reward_bonus: float = 0.0,
 ) -> gym.Env:
     # Each SubprocVecEnv worker is a separate OS process; give it its own
     # ZDoom config file so concurrent instances don't race on the shared
@@ -161,6 +186,8 @@ def make_vizdoom_env(
         env = ExplorationBonus(env, exploration_bonus_per_cell, exploration_cell_size)
     if weapon_pickup_bonus:
         env = WeaponPickupBonus(env, weapon_pickup_bonus)
+    if hit_reward_bonus:
+        env = HitRewardBonus(env, hit_reward_bonus)
     env = ScreenOnlyObservation(env)
     env = GrayscaleObservation(env, keep_dim=False)
     # ResizeObservation calls cv2.resize, which silently drops a size-1

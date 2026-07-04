@@ -8,6 +8,7 @@ stacking before, which would ship 4x the bytes per step). Progress is logged
 to TensorBoard under logs/tensorboard (`tensorboard --logdir logs/tensorboard`).
 """
 
+import argparse
 import re
 from pathlib import Path
 
@@ -36,11 +37,35 @@ def find_latest_checkpoint() -> Path | None:
     return max(checkpoints, key=lambda p: int(re.search(r"_(\d+)_steps", p.stem).group(1)))
 
 
+def parse_args() -> argparse.Namespace:
+    """Reward-shaping bonuses, all off by default (matching basic.wad's
+    original unshaped reward) — pass flags to opt in for experimentation."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--kill-reward-bonus", type=float, default=0.0)
+    parser.add_argument("--hit-reward-bonus", type=float, default=0.0)
+    parser.add_argument("--exploration-bonus-per-cell", type=float, default=0.0)
+    parser.add_argument("--exploration-cell-size", type=float, default=32.0)
+    parser.add_argument("--weapon-pickup-bonus", type=float, default=0.0)
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    env_kwargs = dict(
+        kill_reward_bonus=args.kill_reward_bonus,
+        hit_reward_bonus=args.hit_reward_bonus,
+        exploration_bonus_per_cell=args.exploration_bonus_per_cell,
+        exploration_cell_size=args.exploration_cell_size,
+        weapon_pickup_bonus=args.weapon_pickup_bonus,
+    )
+    print(f"Reward shaping: {env_kwargs}")
+
     # SubprocVecEnv runs each ViZDoom instance in its own process. ViZDoom's
     # engine step is CPU-bound (software rendering), so DummyVecEnv's
     # single-process/sequential stepping left most cores idle.
-    vec_env = make_vec_env(make_basic_env, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv)
+    vec_env = make_vec_env(
+        make_basic_env, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv, env_kwargs=env_kwargs
+    )
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
     # save_freq is per-env steps; the callback fires every N_ENVS actual
