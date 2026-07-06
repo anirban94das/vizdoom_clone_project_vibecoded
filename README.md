@@ -30,9 +30,20 @@ The agent is a CNN policy trained with **PPO** (via `stable-baselines3`) directl
 Requires a project-local virtual environment (do not use a global Python install for this).
 
 ```powershell
+# Windows cmd
+setup_env.bat
+```
+```bash
+# Git Bash / WSL / any POSIX shell
+./setup_env.sh
+```
+
+Both scripts resolve a Python 3.14 interpreter via the `py` launcher, create `.venv`, and `pip install -r requirements.txt` (which pins `torch==2.12.1+cu130` via `--extra-index-url`, plus `vizdoom`, `gymnasium`, `stable-baselines3`, `tensorboard`, `matplotlib`, and `visualtorch`) — re-runs skip the reinstall if `requirements.txt` hasn't changed since the last successful install. If both scripts break, fall back to manual setup:
+
+```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install vizdoom gymnasium stable-baselines3 torch tensorboard
+pip install -r requirements.txt
 ```
 
 Installed and verified on this machine: Python 3.14.6, `vizdoom` 1.3.0, `gymnasium` 1.3.0, `torch` 2.12.1+cu130, `stable-baselines3` 2.9.0, on an AMD Ryzen 7 5800H (8 cores / 16 threads) with an NVIDIA RTX 3060 (6GB).
@@ -46,6 +57,8 @@ A small Tkinter UI wraps everything below — pick a scenario, tweak reward-shap
 ```powershell
 .venv\Scripts\python.exe train_ui.py
 ```
+
+A third button, **Visualize Model**, renders the selected scenario's saved `CnnPolicy` architecture as a PNG (via `visualize_PPO_model.py`) and shows it inline in a panel next to the log — useful for sanity-checking the network shape, or just seeing what's actually training. Disabled with an error dialog if that scenario doesn't have a saved model yet.
 
 ### Command line
 
@@ -103,7 +116,14 @@ train_deadly_corridor.py          Same structure, for deadly_corridor.wad
                                    (300k timesteps/run, reward shaping on)
 train_ui.py                       Tkinter launcher — start/stop training and
                                    live-watching for either scenario, edit
-                                   reward-shaping values, without the CLI
+                                   reward-shaping values, render the model
+                                   architecture inline, without the CLI
+visualize_PPO_model.py            One-shot script, renders a saved (or
+                                   untrained) CnnPolicy's architecture as a
+                                   PNG via visualtorch — not part of training
+setup_env.sh / setup_env.bat       Bootstrap .venv + pip install -r
+                                   requirements.txt from scratch on a new
+                                   machine
 watch_agent.py                    Reloads models/latest/ppo_basic.zip before
                                    each episode, renders live gameplay in a
                                    window, independent of training

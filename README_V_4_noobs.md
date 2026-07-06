@@ -36,7 +36,7 @@ Easiest path — a small desktop UI:
 ```powershell
 .venv\Scripts\python.exe train_ui.py
 ```
-Pick a scenario, tweak reward-bonus values if you want, hit Start Training / Watch Agent.
+Pick a scenario, tweak reward-bonus values if you want, hit Start Training / Watch Agent. There's also a **Visualize Model** button — it draws a picture of the neural network itself (what layers it has, how big) using whichever scenario's saved model you currently have, and shows it right there in the window next to the log.
 
 Or from the command line:
 ```powershell
@@ -52,6 +52,7 @@ tensorboard --logdir logs/tensorboard   # reward/loss curves over time
 - `train_basic.py` / `train_deadly_corridor.py` — the actual PPO training entry points
 - `watch_agent*.py` — loads the current model and shows it playing live
 - `train_ui.py` — the GUI wrapper around all of the above
+- `visualize_PPO_model.py` — draws a picture of the network's architecture (layers/shapes), not part of training itself
 - `models/latest/` — the one live model file per scenario
 - `CLAUDE.md` — much deeper technical writeup (gotchas already solved, performance tuning already applied, exact file responsibilities) if you want to go further
 
