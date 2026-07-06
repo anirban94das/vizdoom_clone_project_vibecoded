@@ -42,11 +42,30 @@ VENV_PY="$VENV_DIR/Scripts/python.exe"
 echo "[setup] Upgrading pip ..."
 "$VENV_PY" -m pip install --upgrade pip
 
-echo "[setup] Installing project dependencies (vizdoom, gymnasium, stable-baselines3, torch, tensorboard) ..."
-"$VENV_PY" -m pip install vizdoom gymnasium stable-baselines3 torch tensorboard
+# Skip the (slow) pip resolve/install entirely if requirements.txt hasn't
+# changed since the last successful install here - re-running pip install
+# with no version pins is what caused packages to get silently
+# uninstalled/reinstalled on every run (the resolver re-picks versions for
+# unpinned transitive deps like numpy/opencv each time).
+REQ_FILE="$PROJECT_ROOT/requirements.txt"
+HASH_FILE="$VENV_DIR/.requirements.sha256"
+
+NEW_HASH="$(sha256sum "$REQ_FILE" | cut -d' ' -f1)"
+OLD_HASH=""
+if [ -f "$HASH_FILE" ]; then
+    OLD_HASH="$(cat "$HASH_FILE")"
+fi
+
+if [ "$NEW_HASH" = "$OLD_HASH" ]; then
+    echo "[setup] requirements.txt unchanged since last install - skipping pip install."
+else
+    echo "[setup] Installing project dependencies from requirements.txt ..."
+    "$VENV_PY" -m pip install -r "$REQ_FILE"
+    echo "$NEW_HASH" > "$HASH_FILE"
+fi
 
 echo "[setup] Verifying the install ..."
-"$VENV_PY" -c "import vizdoom, gymnasium, stable_baselines3, torch; print('vizdoom', vizdoom.__version__); print('gymnasium', gymnasium.__version__); print('stable_baselines3', stable_baselines3.__version__); print('torch', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+"$VENV_PY" -c "import vizdoom, gymnasium, stable_baselines3, torch, cv2; print('vizdoom', vizdoom.__version__); print('gymnasium', gymnasium.__version__); print('stable_baselines3', stable_baselines3.__version__); print('torch', torch.__version__); print('cv2', cv2.__version__); print('CUDA available:', torch.cuda.is_available())"
 
 echo
 echo "[setup] Done. Launch the desktop UI with:"

@@ -64,15 +64,33 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [setup] Installing project dependencies (vizdoom, gymnasium, stable-baselines3, torch, tensorboard) ...
-"%VENV_PY%" -m pip install vizdoom gymnasium stable-baselines3 torch tensorboard
-if errorlevel 1 (
-    echo [setup] FAILED to install dependencies.
-    exit /b 1
+rem Skip the (slow) pip resolve/install entirely if requirements.txt hasn't
+rem changed since the last successful install here - re-running pip install
+rem with no version pins is what caused packages to get silently
+rem uninstalled/reinstalled on every run (the resolver re-picks versions for
+rem unpinned transitive deps like numpy/opencv each time).
+set "REQ_FILE=%PROJECT_ROOT%requirements.txt"
+set "HASH_FILE=%VENV_DIR%\.requirements.sha256"
+
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-FileHash '%REQ_FILE%' -Algorithm SHA256).Hash"`) do set "NEW_HASH=%%H"
+
+set "OLD_HASH="
+if exist "%HASH_FILE%" set /p OLD_HASH=<"%HASH_FILE%"
+
+if "%NEW_HASH%"=="%OLD_HASH%" (
+    echo [setup] requirements.txt unchanged since last install - skipping pip install.
+) else (
+    echo [setup] Installing project dependencies from requirements.txt ...
+    "%VENV_PY%" -m pip install -r "%REQ_FILE%"
+    if errorlevel 1 (
+        echo [setup] FAILED to install dependencies.
+        exit /b 1
+    )
+    >"%HASH_FILE%" echo %NEW_HASH%
 )
 
 echo [setup] Verifying the install ...
-"%VENV_PY%" -c "import vizdoom, gymnasium, stable_baselines3, torch; print('vizdoom', vizdoom.__version__); print('gymnasium', gymnasium.__version__); print('stable_baselines3', stable_baselines3.__version__); print('torch', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+"%VENV_PY%" -c "import vizdoom, gymnasium, stable_baselines3, torch, cv2; print('vizdoom', vizdoom.__version__); print('gymnasium', gymnasium.__version__); print('stable_baselines3', stable_baselines3.__version__); print('torch', torch.__version__); print('cv2', cv2.__version__); print('CUDA available:', torch.cuda.is_available())"
 if errorlevel 1 (
     echo [setup] Import check FAILED - see error above.
     exit /b 1
