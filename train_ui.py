@@ -38,6 +38,19 @@ WATCH_SCRIPTS = {
     "Deadly Corridor (shaped)": "watch_agent_deadly_corridor.py",
 }
 
+# Mirrors each train_*.py's MODEL_PATH constant - the file visualize_PPO_model.py
+# is pointed at for the currently selected level.
+MODEL_PATHS = {
+    "Basic": "models/latest/ppo_basic.zip",
+    "Deadly Corridor (shaped)": "models/latest/ppo_deadly_corridor_shaped.zip",
+}
+
+# One render output per level so switching levels doesn't clobber the other's image.
+VIZ_OUTPUT_NAMES = {
+    "Basic": "ppo_actor_render_basic.png",
+    "Deadly Corridor (shaped)": "ppo_actor_render_deadly_corridor.png",
+}
+
 # Reward-shaping knobs, one row per train_*.py --flag. Defaults mirror each
 # script's argparse defaults (envs/basic_env.py's are all 0.0/off;
 # train_deadly_corridor.py's match its existing hardcoded values) so leaving
@@ -78,12 +91,15 @@ class TrainingLauncher(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("ViZDoom Training Launcher")
-        self.geometry("720x480")
+        self.geometry("1080x560")
 
         self.python_exe = resolve_python()
         self.process: subprocess.Popen | None = None
         self.watch_process: subprocess.Popen | None = None
+        self.visualize_process: subprocess.Popen | None = None
         self.output_queue: queue.Queue[str] = queue.Queue()
+        self.viz_image: tk.PhotoImage | None = None  # kept alive; Tk drops GC'd images
+        self._last_viz_result: tuple[int, Path] | None = None
 
         self._build_widgets()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -116,6 +132,11 @@ class TrainingLauncher(tk.Tk):
             top, text="Stop Watching", command=self._stop_watching, state="disabled"
         )
         self.stop_watch_button.pack(side="left", padx=4)
+
+        self.visualize_button = ttk.Button(
+            top, text="Visualize Model", command=self._start_visualize
+        )
+        self.visualize_button.pack(side="left", padx=(16, 4))
 
         self.status_var = tk.StringVar(value="Idle")
         ttk.Label(top, textvariable=self.status_var).pack(side="right")
