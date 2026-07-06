@@ -157,8 +157,14 @@ class TrainingLauncher(tk.Tk):
             self.reward_vars[key] = var
         self._on_level_changed()
 
-        log_frame = ttk.Frame(self, padding=(10, 0, 10, 10))
-        log_frame.pack(fill="both", expand=True)
+        bottom_frame = ttk.Frame(self, padding=(10, 0, 10, 10))
+        bottom_frame.pack(fill="both", expand=True)
+
+        # Log on the left (shows train/watch/visualize subprocess output, all
+        # interleaved with a prefix per source) so a running Watch Agent's
+        # output stays visible while a model render happens alongside it.
+        log_frame = ttk.Frame(bottom_frame)
+        log_frame.pack(side="left", fill="both", expand=True)
 
         self.log_text = tk.Text(log_frame, state="disabled", wrap="none", bg="black", fg="lightgreen")
         self.log_text.pack(side="left", fill="both", expand=True)
@@ -166,6 +172,17 @@ class TrainingLauncher(tk.Tk):
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.pack(side="right", fill="y")
         self.log_text.configure(yscrollcommand=scrollbar.set)
+
+        # Model architecture render, in the same window rather than a popup,
+        # so it sits next to whatever Watch Agent is doing.
+        viz_frame = ttk.LabelFrame(bottom_frame, text="Model architecture", padding=10)
+        viz_frame.pack(side="right", fill="y", padx=(10, 0))
+
+        self.viz_status_var = tk.StringVar(value="No render yet")
+        ttk.Label(viz_frame, textvariable=self.viz_status_var).pack(anchor="w")
+
+        self.viz_image_label = ttk.Label(viz_frame, text="(click Visualize Model)")
+        self.viz_image_label.pack(fill="both", expand=True, pady=(6, 0))
 
     def _on_level_changed(self, _event=None) -> None:
         """Reset reward fields to the newly selected level's defaults."""
