@@ -120,6 +120,50 @@ class WeaponPickupBonus(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
+class EpisodeStatsWrapper(gym.Wrapper):
+    """Tracks kills/hits/explored-cells/weapons-picked-up per episode purely
+    for reporting (via info["episode_stats"] on the terminal step), separate
+    from the opt-in reward-shaping wrappers above. Always applied regardless
+    of whether those bonuses are turned on, so a scenario like basic.wad
+    (all bonuses off by default) still gets a behavior recap, not just a
+    reward number."""
+
+    def __init__(self, env: gym.Env, exploration_cell_size: float = 32.0):
+        super().__init__(env)
+        self.exploration_cell_size = exploration_cell_size
+        self._visited: set[tuple[int, int]] = set()
+        self._owned_at_reset: set[int] = set()
+
+    def _cell(self) -> tuple[int, int]:
+        game = self.unwrapped.game
+        x = game.get_game_variable(vzd.GameVariable.POSITION_X)
+        y = game.get_game_variable(vzd.GameVariable.POSITION_Y)
+        return (int(x // self.exploration_cell_size), int(y // self.exploration_cell_size))
+
+    def _owned_weapons(self) -> set[int]:
+        game = self.unwrapped.game
+        return {i for i, var in enumerate(WeaponPickupBonus.WEAPON_VARS) if game.get_game_variable(var) > 0}
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._visited = {self._cell()}
+        self._owned_at_reset = self._owned_weapons()
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self._visited.add(self._cell())
+        if terminated or truncated:
+            game = self.unwrapped.game
+            info["episode_stats"] = {
+                "kills": game.get_game_variable(vzd.GameVariable.KILLCOUNT),
+                "hits": game.get_game_variable(vzd.GameVariable.HITCOUNT),
+                "cells_explored": len(self._visited),
+                "weapons_picked_up": len(self._owned_weapons() - self._owned_at_reset),
+            }
+        return obs, reward, terminated, truncated, info
+
+
 class HitRewardBonus(gym.Wrapper):
     """Adds bonus_per_hit on top of the scenario's built-in reward for each
     HITCOUNT increment. HITCOUNT fires on every successful hit landed on an
@@ -180,6 +224,10 @@ def make_vizdoom_env(
         # per-step cost in every parallel worker.
         screen_resolution=screen_resolution,
     )
+    # Always on (unlike the opt-in bonuses below) so every scenario gets a
+    # behavior recap - kills/hits/exploration/weapons - even when none of
+    # the reward bonuses are enabled for it.
+    env = EpisodeStatsWrapper(env, exploration_cell_size=exploration_cell_size)
     if kill_reward_bonus:
         env = KillRewardBonus(env, kill_reward_bonus)
     if exploration_bonus_per_cell:

@@ -22,7 +22,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecFrameStack
 
 from envs.deadly_corridor_env import make_deadly_corridor_env
-from training_utils import OverwriteCheckpointCallback
+from training_utils import EpisodeRecapCallback, OverwriteCheckpointCallback
 
 # deadly_corridor is a harder, sparser-reward scenario (doom_skill=5, must
 # navigate under fire) than basic.wad's ~100k-step convergence. Starting
@@ -78,6 +78,10 @@ def main() -> None:
         save_path=MODEL_PATH,
         verbose=1,
     )
+    recap_callback = EpisodeRecapCallback(
+        scenario="ppo_deadly_corridor_shaped",
+        history_path=Path("logs/training_history.jsonl"),
+    )
 
     if MODEL_PATH.exists():
         print(f"Resuming shaped-reward run from: {MODEL_PATH}")
@@ -114,7 +118,7 @@ def main() -> None:
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         tb_log_name="ppo_deadly_corridor_shaped",
-        callback=checkpoint_callback,
+        callback=[checkpoint_callback, recap_callback],
         reset_num_timesteps=reset_num_timesteps,
     )
     model.save(MODEL_PATH)

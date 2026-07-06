@@ -16,7 +16,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecFrameStack
 
 from envs.basic_env import make_basic_env
-from training_utils import OverwriteCheckpointCallback
+from training_utils import EpisodeRecapCallback, OverwriteCheckpointCallback
 
 TOTAL_TIMESTEPS = 100_000
 # This machine has 8 physical cores / 16 logical (SMT). ViZDoom's engine step
@@ -68,6 +68,10 @@ def main() -> None:
         save_path=MODEL_PATH,
         verbose=1,
     )
+    recap_callback = EpisodeRecapCallback(
+        scenario="ppo_basic",
+        history_path=Path("logs/training_history.jsonl"),
+    )
 
     resuming = MODEL_PATH.exists()
     if resuming:
@@ -90,7 +94,7 @@ def main() -> None:
     model.learn(
         total_timesteps=TOTAL_TIMESTEPS,
         tb_log_name="ppo_basic",
-        callback=checkpoint_callback,
+        callback=[checkpoint_callback, recap_callback],
         reset_num_timesteps=not resuming,
     )
     model.save(MODEL_PATH)

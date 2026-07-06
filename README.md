@@ -60,6 +60,21 @@ A small Tkinter UI wraps everything below — pick a scenario, tweak reward-shap
 
 A third button, **Visualize Model**, renders the selected scenario's saved `CnnPolicy` architecture as a PNG (via `visualize_PPO_model.py`) and shows it inline in a panel next to the log — useful for sanity-checking the network shape, or just seeing what's actually training. Disabled with an error dialog if that scenario doesn't have a saved model yet.
 
+### Training recap
+
+Every run of `train_basic.py` / `train_deadly_corridor.py` (CLI or via `train_ui.py`) ends with a printed recap comparing the first ~20 episodes of that run against the last ~20 — reward, kills, hits, cells explored, and weapons picked up — e.g.:
+
+```
+[recap] ppo_basic - 94 episodes this run (first 20 vs last 20, 4096 cumulative timesteps):
+  reward            :  -151.85 ->  -156.55
+  kills             :     0.55 ->     0.60
+  hits              :     0.55 ->     0.60
+  cells_explored    :     5.50 ->     5.15
+  weapons_picked_up :     0.00 ->     0.00
+```
+
+The same line is appended as JSON to `logs/training_history.jsonl`, so past runs' recaps accumulate over time instead of only being visible in that run's console output. Kills/hits/exploration/weapons are tracked for every scenario regardless of whether that scenario's reward-shaping bonuses are turned on (`envs/common.py`'s `EpisodeStatsWrapper`), so `basic.wad` gets a behavior recap too, not just `deadly_corridor`.
+
 ### Command line
 
 Train the agent (auto-resumes from `models/latest/` if a model already exists — see below):
@@ -107,7 +122,10 @@ envs/deadly_corridor_env.py       Thin wrapper registering
                                    on by default
 training_utils.py                 Shared OverwriteCheckpointCallback — saves
                                    to one fixed path on a schedule instead of
-                                   a new file per checkpoint
+                                   a new file per checkpoint. Also
+                                   EpisodeRecapCallback — prints a start-vs-
+                                   end-of-run behavior comparison and appends
+                                   it to logs/training_history.jsonl
 train_basic.py                    PPO training entry point for basic.wad
                                    (CnnPolicy, 12 parallel envs via
                                    SubprocVecEnv, frame stack at the vec-env
@@ -139,6 +157,10 @@ models/                           (top level) older one-off final saves;
                                    ppo_deadly_corridor.zip is still read as
                                    the shaped run's warm-start source
 logs/tensorboard/                 TensorBoard logs
+logs/training_history.jsonl       One JSON line per completed training run
+                                   (reward/kills/hits/cells-explored/weapons,
+                                   first-~20 vs last-~20 episodes), appended
+                                   by EpisodeRecapCallback
 configs/                          Auto-generated, per-process ZDoom ini files
                                    (gitignored; safe to delete when nothing's
                                    running)
