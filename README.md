@@ -25,6 +25,18 @@ The agent is a CNN policy trained with **PPO** (via `stable-baselines3`) directl
 
 `basic.wad`'s built-in reward is already sufficient, so all four default off there. Both scripts accept `--kill-reward-bonus`, `--hit-reward-bonus`, `--exploration-bonus-per-cell`, `--exploration-cell-size`, and `--weapon-pickup-bonus` flags to override any of these per run.
 
+### Policy architecture
+
+Rendered via `visualize_PPO_model.py` from each scenario's actual saved `CnnPolicy` (not a diagram of the code) — NatureCNN feature extractor feeding into PPO's action head. `basic.wad`'s head outputs 4 actions, `deadly_corridor`'s outputs 8; both share the same CNN trunk.
+
+**`basic.wad`:**
+
+![PPO actor architecture — basic.wad](ppo_actor_render_basic.png)
+
+**`deadly_corridor.wad` (shaped reward):**
+
+![PPO actor architecture — deadly_corridor.wad](ppo_actor_render_deadly_corridor.png)
+
 ## Setup
 
 Requires a project-local virtual environment (do not use a global Python install for this).

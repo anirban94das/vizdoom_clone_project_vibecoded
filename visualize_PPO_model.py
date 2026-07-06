@@ -118,6 +118,13 @@ def main() -> None:
         default="ppo_actor_render.png",
         help="Output image path.",
     )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=3.0,
+        help="Upscale factor for output resolution (default 3x visualtorch's "
+        "native render size).",
+    )
     args = parser.parse_args()
 
     if args.model:
@@ -132,12 +139,15 @@ def main() -> None:
     model.eval()
     img = visualtorch.render(model, input_shape=input_shape, style=args.style, legend=True)
 
-    dpi = 150
-    plt.figure(figsize=(img.width / dpi, img.height / dpi), dpi=dpi)
+    # Figure size (in inches) is fixed to visualtorch's native render size at
+    # this base dpi; save-time dpi is scaled up from there so the output
+    # pixel dimensions grow by --scale instead of the two dpi's cancelling out.
+    base_dpi = 100
+    plt.figure(figsize=(img.width / base_dpi, img.height / base_dpi), dpi=base_dpi)
     plt.imshow(img)
     plt.axis("off")
     plt.tight_layout()
-    plt.savefig(args.out, dpi=dpi, bbox_inches="tight")
+    plt.savefig(args.out, dpi=base_dpi * args.scale, bbox_inches="tight")
     print(f"Saved: {args.out}")
 
     # Shape trace, printed alongside the image for a quick sanity check.
