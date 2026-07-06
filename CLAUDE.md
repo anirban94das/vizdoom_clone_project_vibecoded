@@ -39,7 +39,7 @@ python watch_agent_deadly_corridor.py    # deadly_corridor.wad
 .venv\Scripts\python.exe train_ui.py
 ```
 
-No install step needed — `.venv` already has `torch`, `stable_baselines3`, `vizdoom`, and `gymnasium` installed (see Environment below).
+No install step needed on this machine — `.venv` already has `torch`, `stable_baselines3`, `vizdoom`, and `gymnasium` installed (see Environment below). To bootstrap `.venv` from scratch elsewhere, `setup_env.sh` (Git Bash/WSL/POSIX) and `setup_env.bat` (cmd) both resolve a Python 3.14 interpreter via the `py` launcher, create `.venv`, and `pip install` the same four packages plus `tensorboard` — `setup_env.bat`'s most recent run on Windows failed partway through (per its commit message), so prefer `setup_env.sh` via Git Bash first and fall back to manual `python -m venv .venv` + pip install if either script breaks.
 
 Both `train_basic.py` and `train_deadly_corridor.py` auto-resume: on startup each checks for a single fixed model file (`models/latest/ppo_basic.zip` / `models/latest/ppo_deadly_corridor_shaped.zip`) and `PPO.load`s it if present (falling back to a fresh `CnnPolicy` otherwise). There are no step-numbered checkpoints — a shared `OverwriteCheckpointCallback` (in `training_utils.py`) saves to that same fixed path roughly every 10k timesteps, overwriting it in place, so exactly one file per scenario exists at any time. Each run then trains for `TOTAL_TIMESTEPS` *additional* steps on top of wherever that file left off — `reset_num_timesteps` is set accordingly. To force a from-scratch run, delete that scenario's file under `models/latest/` first.
 

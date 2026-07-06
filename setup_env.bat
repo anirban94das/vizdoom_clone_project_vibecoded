@@ -72,7 +72,17 @@ rem unpinned transitive deps like numpy/opencv each time).
 set "REQ_FILE=%PROJECT_ROOT%requirements.txt"
 set "HASH_FILE=%VENV_DIR%\.requirements.sha256"
 
-for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-FileHash '%REQ_FILE%' -Algorithm SHA256).Hash"`) do set "NEW_HASH=%%H"
+rem Import-Module is required here: on some machines Get-FileHash isn't
+rem autoloaded in a -NoProfile, non-interactive session, which silently
+rem produces no output instead of an error - NEW_HASH would stay undefined
+rem and "echo %NEW_HASH%" below would write the literal text "ECHO is off."
+rem to the hash file (confirmed happening on this machine previously).
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "Import-Module Microsoft.PowerShell.Utility; (Get-FileHash '%REQ_FILE%' -Algorithm SHA256).Hash"`) do set "NEW_HASH=%%H"
+
+if not defined NEW_HASH (
+    echo [setup] WARNING: could not compute requirements.txt's hash - forcing a dependency install to be safe.
+    set "NEW_HASH=FORCE_REINSTALL"
+)
 
 set "OLD_HASH="
 if exist "%HASH_FILE%" set /p OLD_HASH=<"%HASH_FILE%"
