@@ -188,6 +188,103 @@ class HitRewardBonus(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
+class DamageDealtBonus(gym.Wrapper):
+    """Adds bonus_per_damage reward per DAMAGECOUNT point dealt to enemies.
+    Denser/more informative than HitRewardBonus - a solid hit and a grazing
+    hit both count as "1 hit" under HITCOUNT, but deal very different
+    DAMAGECOUNT, so this rewards landing damaging hits specifically."""
+
+    def __init__(self, env: gym.Env, bonus_per_damage: float):
+        super().__init__(env)
+        self.bonus_per_damage = bonus_per_damage
+        self._last_damage = 0.0
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._last_damage = self.unwrapped.game.get_game_variable(vzd.GameVariable.DAMAGECOUNT)
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        damage = self.unwrapped.game.get_game_variable(vzd.GameVariable.DAMAGECOUNT)
+        reward += (damage - self._last_damage) * self.bonus_per_damage
+        self._last_damage = damage
+        return obs, reward, terminated, truncated, info
+
+
+class DamageTakenPenalty(gym.Wrapper):
+    """Subtracts penalty_per_damage reward per DAMAGE_TAKEN point received.
+    penalty_per_damage is a non-negative magnitude that gets subtracted (like
+    ViZDoom's own death_penalty config value) rather than added, so a
+    positive value here always discourages getting hurt instead of
+    accidentally rewarding it."""
+
+    def __init__(self, env: gym.Env, penalty_per_damage: float):
+        super().__init__(env)
+        self.penalty_per_damage = penalty_per_damage
+        self._last_damage_taken = 0.0
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._last_damage_taken = self.unwrapped.game.get_game_variable(vzd.GameVariable.DAMAGE_TAKEN)
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        damage_taken = self.unwrapped.game.get_game_variable(vzd.GameVariable.DAMAGE_TAKEN)
+        reward -= (damage_taken - self._last_damage_taken) * self.penalty_per_damage
+        self._last_damage_taken = damage_taken
+        return obs, reward, terminated, truncated, info
+
+
+class HealthChangeBonus(gym.Wrapper):
+    """Adds bonus_per_point reward per net HEALTH point gained, and removes
+    it per point lost, each step. A positive delta means a medkit/health
+    pickup, a negative delta means damage taken - one coefficient naturally
+    rewards healing and penalizes health loss symmetrically."""
+
+    def __init__(self, env: gym.Env, bonus_per_point: float):
+        super().__init__(env)
+        self.bonus_per_point = bonus_per_point
+        self._last_health = 0.0
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._last_health = self.unwrapped.game.get_game_variable(vzd.GameVariable.HEALTH)
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        health = self.unwrapped.game.get_game_variable(vzd.GameVariable.HEALTH)
+        reward += (health - self._last_health) * self.bonus_per_point
+        self._last_health = health
+        return obs, reward, terminated, truncated, info
+
+
+class ArmorChangeBonus(gym.Wrapper):
+    """Adds bonus_per_point reward per net ARMOR point gained, and removes it
+    per point lost, each step. Armor absorbs part of incoming damage before
+    HEALTH drops, and is topped up by armor bonus/armor pickups - same
+    symmetric-delta approach as HealthChangeBonus."""
+
+    def __init__(self, env: gym.Env, bonus_per_point: float):
+        super().__init__(env)
+        self.bonus_per_point = bonus_per_point
+        self._last_armor = 0.0
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._last_armor = self.unwrapped.game.get_game_variable(vzd.GameVariable.ARMOR)
+        return obs, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        armor = self.unwrapped.game.get_game_variable(vzd.GameVariable.ARMOR)
+        reward += (armor - self._last_armor) * self.bonus_per_point
+        self._last_armor = armor
+        return obs, reward, terminated, truncated, info
+
+
 def make_vizdoom_env(
     env_id: str,
     render_mode: str | None = None,
@@ -198,6 +295,10 @@ def make_vizdoom_env(
     exploration_cell_size: float = 32.0,
     weapon_pickup_bonus: float = 0.0,
     hit_reward_bonus: float = 0.0,
+    damage_dealt_bonus: float = 0.0,
+    damage_taken_penalty: float = 0.0,
+    health_change_bonus: float = 0.0,
+    armor_change_bonus: float = 0.0,
 ) -> gym.Env:
     # Each SubprocVecEnv worker is a separate OS process; give it its own
     # ZDoom config file so concurrent instances don't race on the shared
@@ -236,6 +337,14 @@ def make_vizdoom_env(
         env = WeaponPickupBonus(env, weapon_pickup_bonus)
     if hit_reward_bonus:
         env = HitRewardBonus(env, hit_reward_bonus)
+    if damage_dealt_bonus:
+        env = DamageDealtBonus(env, damage_dealt_bonus)
+    if damage_taken_penalty:
+        env = DamageTakenPenalty(env, damage_taken_penalty)
+    if health_change_bonus:
+        env = HealthChangeBonus(env, health_change_bonus)
+    if armor_change_bonus:
+        env = ArmorChangeBonus(env, armor_change_bonus)
     env = ScreenOnlyObservation(env)
     env = GrayscaleObservation(env, keep_dim=False)
     # ResizeObservation calls cv2.resize, which silently drops a size-1

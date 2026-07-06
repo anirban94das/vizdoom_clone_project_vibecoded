@@ -39,6 +39,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exploration-bonus-per-cell", type=float, default=0.0)
     parser.add_argument("--exploration-cell-size", type=float, default=32.0)
     parser.add_argument("--weapon-pickup-bonus", type=float, default=0.0)
+    parser.add_argument("--damage-dealt-bonus", type=float, default=0.0)
+    parser.add_argument("--damage-taken-penalty", type=float, default=0.0)
+    parser.add_argument("--health-change-bonus", type=float, default=0.0)
+    parser.add_argument("--armor-change-bonus", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -50,6 +54,10 @@ def main() -> None:
         exploration_bonus_per_cell=args.exploration_bonus_per_cell,
         exploration_cell_size=args.exploration_cell_size,
         weapon_pickup_bonus=args.weapon_pickup_bonus,
+        damage_dealt_bonus=args.damage_dealt_bonus,
+        damage_taken_penalty=args.damage_taken_penalty,
+        health_change_bonus=args.health_change_bonus,
+        armor_change_bonus=args.armor_change_bonus,
     )
     print(f"Reward shaping: {env_kwargs}")
 

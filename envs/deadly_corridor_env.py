@@ -27,6 +27,10 @@ def make_deadly_corridor_env(
     exploration_cell_size: float = 32.0,
     weapon_pickup_bonus: float = 15.0,
     hit_reward_bonus: float = 5.0,
+    damage_dealt_bonus: float = 0.0,
+    damage_taken_penalty: float = 0.0,
+    health_change_bonus: float = 0.0,
+    armor_change_bonus: float = 0.0,
 ) -> gym.Env:
     return make_vizdoom_env(
         ENV_ID,
@@ -37,4 +41,8 @@ def make_deadly_corridor_env(
         exploration_cell_size=exploration_cell_size,
         weapon_pickup_bonus=weapon_pickup_bonus,
         hit_reward_bonus=hit_reward_bonus,
+        damage_dealt_bonus=damage_dealt_bonus,
+        damage_taken_penalty=damage_taken_penalty,
+        health_change_bonus=health_change_bonus,
+        armor_change_bonus=armor_change_bonus,
     )
