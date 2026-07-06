@@ -8,7 +8,22 @@ The agent is a CNN policy trained with **PPO** (via `stable-baselines3`) directl
 
 ## Status
 
-Training pipeline for the `basic.wad` scenario (single room, one monster — the simplest built-in ViZDoom scenario) is built, tuned for throughput, and runnable. No full training run has completed yet. Harder scenarios (`deadly_corridor.wad`, `defend_the_center.wad`) come after `basic.wad` shows a clean upward reward trend.
+- **`basic.wad`** (single room, one monster — the simplest built-in ViZDoom scenario): training pipeline built, tuned for throughput, and performing well.
+- **`deadly_corridor.wad`** (harder, sparse-reward, `doom_skill=5`, must advance under fire): baseline run completed (`ep_rew_mean` climbed from -88 to +151 over 950k steps). A reward-shaped version is now the default — see below — warm-started from that baseline.
+- Next up: `defend_the_center.wad`, once the shaped `deadly_corridor` run shows a clean upward trend.
+
+### Reward shaping
+
+`deadly_corridor.cfg` only scores distance-to-goal and a death penalty out of the box — it doesn't reward kills, hits, exploration, or item pickups directly. Four opt-in wrappers (`envs/common.py`) add denser signal on top of any scenario's built-in reward:
+
+| Bonus | What it rewards | Default (`basic`) | Default (`deadly_corridor`) |
+|---|---|---|---|
+| `kill_reward_bonus` | Each `KILLCOUNT` increment | 0.0 (off) | 20.0 |
+| `hit_reward_bonus` | Each `HITCOUNT` increment (landing a shot, not just a kill) | 0.0 (off) | 5.0 |
+| `exploration_bonus_per_cell` | First visit to each discretized position cell per episode | 0.0 (off) | 1.0 |
+| `weapon_pickup_bonus` | First time each episode a `WEAPON0`–`WEAPON9` slot is acquired (e.g. the shotgun a dead `ShotgunGuy` drops) | 0.0 (off) | 15.0 |
+
+`basic.wad`'s built-in reward is already sufficient, so all four default off there. Both scripts accept `--kill-reward-bonus`, `--hit-reward-bonus`, `--exploration-bonus-per-cell`, `--exploration-cell-size`, and `--weapon-pickup-bonus` flags to override any of these per run.
 
 ## Setup
 
@@ -24,11 +39,22 @@ Installed and verified on this machine: Python 3.14.6, `vizdoom` 1.3.0, `gymnasi
 
 ## Usage
 
-Train the agent on `basic.wad`:
+### Desktop launcher (recommended)
+
+A small Tkinter UI wraps everything below — pick a scenario, tweak reward-shaping values, and start/stop training or live-watching without touching the terminal:
+
+```powershell
+.venv\Scripts\python.exe train_ui.py
+```
+
+### Command line
+
+Train the agent (auto-resumes from `models/latest/` if a model already exists — see below):
 
 ```powershell
 .venv\Scripts\Activate.ps1
 python train_basic.py
+python train_deadly_corridor.py   # don't run alongside train_basic.py — see Performance notes
 ```
 
 Watch training metrics live:
@@ -39,51 +65,77 @@ tensorboard --logdir logs/tensorboard
 # open http://localhost:6006
 ```
 
-Watch the agent actually play, live, in a second terminal (updates as new checkpoints land):
+Watch the agent actually play, live, in a second terminal (reloads the latest saved model between episodes, so behavior updates as training progresses):
 
 ```powershell
 .venv\Scripts\Activate.ps1
-python watch_agent.py
+python watch_agent.py                    # basic.wad
+python watch_agent_deadly_corridor.py    # deadly_corridor.wad
 ```
 
-Resume training from a checkpoint instead of starting over:
+### Auto-resume
 
-```python
-model = PPO.load("models/checkpoints/ppo_basic_<N>_steps", env=vec_env)
-model.learn(total_timesteps=..., reset_num_timesteps=False, tb_log_name="ppo_basic")
-```
+Each `train_*.py` checks for a single fixed model file under `models/latest/` on startup (`ppo_basic.zip` / `ppo_deadly_corridor_shaped.zip`) and resumes from it with `PPO.load` if present, otherwise starts a fresh `CnnPolicy`. There are no step-numbered checkpoints to manage — `training_utils.OverwriteCheckpointCallback` saves to that same fixed path roughly every 10k timesteps, overwriting it in place, so exactly one file per scenario exists at any time and it's always current. To force a from-scratch run, delete that scenario's file under `models/latest/` first.
+
+`train_deadly_corridor.py` trains under a `ppo_deadly_corridor_shaped` identity (not the older `ppo_deadly_corridor` baseline) since it enables reward shaping by default — a different reward function than the baseline run it evolved from. If no shaped model exists yet, it warm-starts weights from `models/ppo_deadly_corridor.zip` (the baseline's final save) instead, carrying over learned visual features/aiming/movement, but resets the timestep/TensorBoard counter — expect a visible jump/dip in the reward curve right at that handoff.
 
 ## Project structure
 
 ```
-envs/basic_env.py      Gymnasium env factory for basic.wad — screen-only
-                        observation, grayscale, resized to 84x84 (84,84,1),
-                        frame_skip=4, native render at RES_160X120, unique
-                        per-process ZDoom config path
-train_basic.py          PPO training entry point (CnnPolicy, 14 parallel envs
-                         via SubprocVecEnv, frame stack applied at the
-                         vec-env level, checkpoints every ~10k steps)
-watch_agent.py           Loads the newest checkpoint and renders live
-                          gameplay in a window, independent of training
-models/checkpoints/       Periodic checkpoints saved during training
-models/                   Final saved model weights (model.save at the end)
-logs/tensorboard/          TensorBoard logs
-configs/                    Auto-generated, per-process ZDoom ini files
-                             (gitignored; safe to delete when nothing's running)
+envs/common.py                    Shared Gymnasium env factory — screen-only
+                                   observation, grayscale, resized to 84x84
+                                   (84,84,1), frame_skip=4, native render at
+                                   RES_160X120, unique per-process ZDoom
+                                   config path, four opt-in reward-shaping
+                                   wrappers (kill/hit/exploration/weapon)
+envs/basic_env.py                 Thin wrapper registering VizdoomBasic-v1
+envs/deadly_corridor_env.py       Thin wrapper registering
+                                   VizdoomDeadlyCorridor-v1, reward shaping
+                                   on by default
+training_utils.py                 Shared OverwriteCheckpointCallback — saves
+                                   to one fixed path on a schedule instead of
+                                   a new file per checkpoint
+train_basic.py                    PPO training entry point for basic.wad
+                                   (CnnPolicy, 12 parallel envs via
+                                   SubprocVecEnv, frame stack at the vec-env
+                                   level, 100k timesteps/run)
+train_deadly_corridor.py          Same structure, for deadly_corridor.wad
+                                   (300k timesteps/run, reward shaping on)
+train_ui.py                       Tkinter launcher — start/stop training and
+                                   live-watching for either scenario, edit
+                                   reward-shaping values, without the CLI
+watch_agent.py                    Reloads models/latest/ppo_basic.zip before
+                                   each episode, renders live gameplay in a
+                                   window, independent of training
+watch_agent_deadly_corridor.py    Same, for
+                                   models/latest/ppo_deadly_corridor_shaped.zip
+models/latest/                    The single actively-trained model per
+                                   scenario, overwritten in place — what
+                                   auto-resume and watch_agent_*.py read
+models/checkpoints/               Leftover step-numbered checkpoints from
+                                   before the single-file scheme; no longer
+                                   written to
+models/                           (top level) older one-off final saves;
+                                   ppo_deadly_corridor.zip is still read as
+                                   the shaped run's warm-start source
+logs/tensorboard/                 TensorBoard logs
+configs/                          Auto-generated, per-process ZDoom ini files
+                                   (gitignored; safe to delete when nothing's
+                                   running)
 ```
 
 ## Performance notes
 
-- Envs run via `SubprocVecEnv` (one ViZDoom instance per OS process) rather than the sequential `DummyVecEnv` default — ViZDoom's engine step is CPU-bound (software rendering), so this is what actually parallelizes across cores. `N_ENVS = 14` on this machine's 8-core/16-thread CPU; going much higher has diminishing returns since ViZDoom stepping is single-threaded work and SMT isn't a 2x multiplier.
+- Envs run via `SubprocVecEnv` (one ViZDoom instance per OS process) rather than the sequential `DummyVecEnv` default — ViZDoom's engine step is CPU-bound (software rendering), so this is what actually parallelizes across cores. `N_ENVS = 12` on this machine's 8-core/16-thread CPU — throughput is capped more by physical cores than logical ones, and going much higher had diminishing returns (and hit a startup race at 14).
+- **Don't run `train_basic.py` and `train_deadly_corridor.py` at the same time** — each spawns its own `N_ENVS` `SubprocVecEnv` workers, and running both oversubscribes this machine's 8 physical cores.
 - `frame_skip=4` — the policy acts once every 4 engine ticks rather than every tick, matching standard Atari/ViZDoom RL practice.
-- Native render resolution is forced down to `RES_160X120` (from ViZDoom's `basic.wad` default of `RES_320X240`) since the pipeline resizes to 84x84 anyway — no reason to make the software rasterizer draw 4x more pixels per step across 14 parallel workers.
+- Native render resolution is forced down to `RES_160X120` (from ViZDoom's default `RES_320X240`) since the pipeline resizes to 84x84 anyway — no reason to make the software rasterizer draw 4x more pixels per step across every parallel worker.
 - Frame-stacking happens at the vec-env level (`VecFrameStack` wrapping the already-parallel `SubprocVecEnv`), not per-env. Each worker ships one new `(84,84,1)` frame across its process pipe per step instead of a full `(84,84,4)` stack — a 4x cut in inter-process payload.
-- Training envs render headless (`render_mode=None`) for speed; use `watch_agent.py` separately to see gameplay without slowing training down.
-- Checkpoints save every ~10k timesteps (`CheckpointCallback`) so a killed run doesn't lose all progress — `model.save()` alone only fires once, at the very end of `model.learn()`.
+- Training envs render headless (`render_mode=None`) for speed; use `watch_agent*.py` (or the "Watch Agent" button in `train_ui.py`) separately to see gameplay without slowing training down — it's a single-process `DummyVecEnv`, so it can run alongside a training run without oversubscription concerns.
 
 ## Known gotchas (already handled, documented so they don't get "fixed" twice)
 
-- **`viz_instance_id is write protected`** — happens when multiple `SubprocVecEnv` workers launch simultaneously and all default to the same `_vizdoom.ini` in the working directory; they race on a ZDoom cvar used for shared-memory IPC naming. Fixed by giving each worker process a unique `doom_config_path` (`configs/vizdoom_<pid>.ini`) in `envs/basic_env.py`.
+- **`viz_instance_id is write protected`** — happens when multiple `SubprocVecEnv` workers launch simultaneously and all default to the same `_vizdoom.ini` in the working directory; they race on a ZDoom cvar used for shared-memory IPC naming. Fixed by giving each worker process a unique `doom_config_path` (`configs/vizdoom_<pid>.ini`) in `envs/common.py`.
 - **`gymnasium.wrappers.ResizeObservation` silently drops a size-1 channel dim.** It *declares* an output shape of `(84, 84, 1)` but internally calls `cv2.resize`, which returns `(84, 84)` for single-channel input — the declared and actual shapes disagree, and this breaks `VecFrameStack` downstream. Fixed by resizing the plain 2D grayscale image (`keep_dim=False`), then explicitly restoring the channel dim with `ReshapeObservation(env, (84, 84, 1))`.
 
 ## Related workspace projects
