@@ -1,12 +1,12 @@
-"""Watch the agent play basic.wad live using the most recent checkpoint.
+"""Watch the agent play basic.wad live using the latest saved model.
 
-Run this alongside train_basic.py (separate terminal, same venv). It loads
-whichever checkpoint in models/checkpoints/ is newest, plays one episode in a
-visible window, then reloads before the next episode — so as training saves
-new checkpoints, you'll see the agent's behavior update every few episodes.
+Run this alongside train_basic.py (separate terminal, same venv). It reloads
+models/latest/ppo_basic.zip before every episode — since train_basic.py
+overwrites that same file on a schedule, you'll see the agent's behavior
+update every few episodes as training progresses.
 
 Uses the same DummyVecEnv + VecFrameStack stacking as train_basic.py so the
-observation shape matches what each checkpoint was trained on.
+observation shape matches what the model was trained on.
 """
 
 import time
@@ -17,20 +17,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 
 from envs.basic_env import make_basic_env
 
-CHECKPOINT_DIR = Path("models/checkpoints")
-
-
-def latest_checkpoint() -> Path:
-    checkpoints = sorted(
-        CHECKPOINT_DIR.glob("ppo_basic_*_steps.zip"),
-        key=lambda p: p.stat().st_mtime,
-    )
-    if not checkpoints:
-        raise FileNotFoundError(
-            f"No checkpoints found in {CHECKPOINT_DIR} yet — wait for training "
-            "to hit its first save_freq interval."
-        )
-    return checkpoints[-1]
+MODEL_PATH = Path("models/latest/ppo_basic.zip")
 
 
 def main() -> None:
@@ -38,9 +25,13 @@ def main() -> None:
     vec_env = VecFrameStack(vec_env, n_stack=4)
 
     while True:
-        checkpoint = latest_checkpoint()
-        print(f"Loading {checkpoint.name}")
-        model = PPO.load(checkpoint, env=vec_env, device="cuda")
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(
+                f"{MODEL_PATH} not found yet — wait for training to hit its "
+                "first save_freq interval."
+            )
+        print(f"Loading {MODEL_PATH}")
+        model = PPO.load(MODEL_PATH, env=vec_env, device="cuda")
 
         obs = vec_env.reset()
         done = False

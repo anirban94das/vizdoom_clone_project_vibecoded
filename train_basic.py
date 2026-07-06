@@ -9,15 +9,14 @@ to TensorBoard under logs/tensorboard (`tensorboard --logdir logs/tensorboard`).
 """
 
 import argparse
-import re
 from pathlib import Path
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecFrameStack
 
 from envs.basic_env import make_basic_env
+from training_utils import OverwriteCheckpointCallback
 
 TOTAL_TIMESTEPS = 100_000
 # This machine has 8 physical cores / 16 logical (SMT). ViZDoom's engine step
@@ -26,15 +25,9 @@ TOTAL_TIMESTEPS = 100_000
 # booting simultaneously left one worker half-initialized) - 8, matching
 # physical cores, is both the throughput sweet spot and safer to boot.
 N_ENVS = 12
-CHECKPOINT_DIR = Path("models/checkpoints")
-
-
-def find_latest_checkpoint() -> Path | None:
-    """Return the checkpoint with the highest step count, or None if empty."""
-    checkpoints = list(CHECKPOINT_DIR.glob("ppo_basic_*_steps.zip"))
-    if not checkpoints:
-        return None
-    return max(checkpoints, key=lambda p: int(re.search(r"_(\d+)_steps", p.stem).group(1)))
+# Single overwritten file, not a growing set of step-numbered checkpoints —
+# this is both the resume point and the only saved copy of this scenario's model.
+MODEL_PATH = Path("models/latest/ppo_basic.zip")
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,17 +63,17 @@ def main() -> None:
 
     # save_freq is per-env steps; the callback fires every N_ENVS actual
     # timesteps, so this saves roughly every 10_000 real timesteps.
-    checkpoint_callback = CheckpointCallback(
+    checkpoint_callback = OverwriteCheckpointCallback(
         save_freq=max(10_000 // N_ENVS, 1),
-        save_path="models/checkpoints",
-        name_prefix="ppo_basic",
+        save_path=MODEL_PATH,
+        verbose=1,
     )
 
-    latest_checkpoint = find_latest_checkpoint()
-    if latest_checkpoint is not None:
-        print(f"Resuming from checkpoint: {latest_checkpoint}")
+    resuming = MODEL_PATH.exists()
+    if resuming:
+        print(f"Resuming from: {MODEL_PATH}")
         model = PPO.load(
-            latest_checkpoint,
+            MODEL_PATH,
             env=vec_env,
             device="cuda",
             tensorboard_log="logs/tensorboard",
@@ -98,9 +91,9 @@ def main() -> None:
         total_timesteps=TOTAL_TIMESTEPS,
         tb_log_name="ppo_basic",
         callback=checkpoint_callback,
-        reset_num_timesteps=latest_checkpoint is None,
+        reset_num_timesteps=not resuming,
     )
-    model.save("models/ppo_basic")
+    model.save(MODEL_PATH)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
 /logs/tensorboard
 /models/checkpoints
-/logs/tensorboard
+/models/latest
+/models/*.zip
 /configs
-/envs/__pycache__
+__pycache__/
+_vizdoom.ini
+output.log
+.venv/
