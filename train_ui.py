@@ -28,6 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 LEVELS = {
     "Basic": "train_basic.py",
     "Deadly Corridor (shaped)": "train_deadly_corridor.py",
+    "Defend the Center": "train_defend_the_center.py",
 }
 
 # watch_agent_*.py opens its own visible ViZDoom window (render_mode="human")
@@ -36,6 +37,7 @@ LEVELS = {
 WATCH_SCRIPTS = {
     "Basic": "watch_agent.py",
     "Deadly Corridor (shaped)": "watch_agent_deadly_corridor.py",
+    "Defend the Center": "watch_agent_defend_the_center.py",
 }
 
 # Mirrors each train_*.py's MODEL_PATH constant - the file visualize_PPO_model.py
@@ -43,12 +45,14 @@ WATCH_SCRIPTS = {
 MODEL_PATHS = {
     "Basic": "models/latest/ppo_basic.zip",
     "Deadly Corridor (shaped)": "models/latest/ppo_deadly_corridor_shaped.zip",
+    "Defend the Center": "models/latest/ppo_defend_the_center.zip",
 }
 
 # One render output per level so switching levels doesn't clobber the other's image.
 VIZ_OUTPUT_NAMES = {
     "Basic": "ppo_actor_render_basic.png",
     "Deadly Corridor (shaped)": "ppo_actor_render_deadly_corridor.png",
+    "Defend the Center": "ppo_actor_render_defend_the_center.png",
 }
 
 # Reward-shaping knobs, one entry per train_*.py --flag (wrapped across
@@ -110,6 +114,17 @@ REWARD_DEFAULTS = {
         "exploration_bonus_per_cell": 1.0,
         "exploration_cell_size": 32.0,
         "weapon_pickup_bonus": 15.0,
+        "damage_dealt_bonus": 0.0,
+        "damage_taken_penalty": 0.0,
+        "health_change_bonus": 0.0,
+        "armor_change_bonus": 0.0,
+    },
+    "Defend the Center": {
+        "kill_reward_bonus": 20.0,
+        "hit_reward_bonus": 5.0,
+        "exploration_bonus_per_cell": 0.0,
+        "exploration_cell_size": 32.0,
+        "weapon_pickup_bonus": 0.0,
         "damage_dealt_bonus": 0.0,
         "damage_taken_penalty": 0.0,
         "health_change_bonus": 0.0,
