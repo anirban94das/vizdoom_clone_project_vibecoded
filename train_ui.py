@@ -51,17 +51,23 @@ VIZ_OUTPUT_NAMES = {
     "Deadly Corridor (shaped)": "ppo_actor_render_deadly_corridor.png",
 }
 
-# Reward-shaping knobs, one row per train_*.py --flag. Defaults mirror each
-# script's argparse defaults (envs/basic_env.py's are all 0.0/off;
-# train_deadly_corridor.py's match its existing hardcoded values) so leaving
-# every field untouched reproduces today's behavior exactly.
+# Reward-shaping knobs, one entry per train_*.py --flag (wrapped across
+# multiple UI rows - see KNOBS_PER_ROW below). Defaults mirror each script's
+# argparse defaults (envs/basic_env.py's are all 0.0/off; train_deadly_corridor.py's
+# match its existing hardcoded values) so leaving every field untouched
+# reproduces today's behavior exactly.
 REWARD_KNOBS = [
     ("kill_reward_bonus", "--kill-reward-bonus", "Kill bonus"),
     ("hit_reward_bonus", "--hit-reward-bonus", "Hit bonus"),
     ("exploration_bonus_per_cell", "--exploration-bonus-per-cell", "Exploration bonus / cell"),
     ("exploration_cell_size", "--exploration-cell-size", "Exploration cell size"),
     ("weapon_pickup_bonus", "--weapon-pickup-bonus", "Weapon pickup bonus"),
+    ("damage_dealt_bonus", "--damage-dealt-bonus", "Damage dealt bonus"),
+    ("damage_taken_penalty", "--damage-taken-penalty", "Damage taken penalty"),
+    ("health_change_bonus", "--health-change-bonus", "Health change bonus"),
+    ("armor_change_bonus", "--armor-change-bonus", "Armor change bonus"),
 ]
+KNOBS_PER_ROW = 5
 
 REWARD_DEFAULTS = {
     "Basic": {
@@ -70,6 +76,10 @@ REWARD_DEFAULTS = {
         "exploration_bonus_per_cell": 0.0,
         "exploration_cell_size": 32.0,
         "weapon_pickup_bonus": 0.0,
+        "damage_dealt_bonus": 0.0,
+        "damage_taken_penalty": 0.0,
+        "health_change_bonus": 0.0,
+        "armor_change_bonus": 0.0,
     },
     "Deadly Corridor (shaped)": {
         "kill_reward_bonus": 20.0,
@@ -77,6 +87,10 @@ REWARD_DEFAULTS = {
         "exploration_bonus_per_cell": 1.0,
         "exploration_cell_size": 32.0,
         "weapon_pickup_bonus": 15.0,
+        "damage_dealt_bonus": 0.0,
+        "damage_taken_penalty": 0.0,
+        "health_change_bonus": 0.0,
+        "armor_change_bonus": 0.0,
     },
 }
 
@@ -148,11 +162,14 @@ class TrainingLauncher(tk.Tk):
         rewards_frame.pack(fill="x", padx=10, pady=(0, 10))
 
         self.reward_vars: dict[str, tk.StringVar] = {}
-        for col, (key, _flag, label) in enumerate(REWARD_KNOBS):
-            ttk.Label(rewards_frame, text=label).grid(row=0, column=col, padx=6, sticky="w")
+        for i, (key, _flag, label) in enumerate(REWARD_KNOBS):
+            row, col = divmod(i, KNOBS_PER_ROW)
+            ttk.Label(rewards_frame, text=label).grid(
+                row=row * 2, column=col, padx=6, pady=(4 if row else 0, 0), sticky="w"
+            )
             var = tk.StringVar()
             ttk.Entry(rewards_frame, textvariable=var, width=10).grid(
-                row=1, column=col, padx=6
+                row=row * 2 + 1, column=col, padx=6
             )
             self.reward_vars[key] = var
         self._on_level_changed()
