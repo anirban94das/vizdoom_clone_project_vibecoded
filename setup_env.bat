@@ -64,15 +64,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [setup] Installing project dependencies (vizdoom, gymnasium, stable-baselines3, torch, tensorboard) ...
-"%VENV_PY%" -m pip install vizdoom gymnasium stable-baselines3 torch tensorboard
+echo [setup] Installing project dependencies (vizdoom, gymnasium[other], stable-baselines3, torch, tensorboard) ...
+"%VENV_PY%" -m pip install vizdoom "gymnasium[other]" stable-baselines3 torch tensorboard
 if errorlevel 1 (
     echo [setup] FAILED to install dependencies.
     exit /b 1
 )
 
 echo [setup] Verifying the install ...
-"%VENV_PY%" -c "import vizdoom, gymnasium, stable_baselines3, torch; print('vizdoom', vizdoom.__version__); print('gymnasium', gymnasium.__version__); print('stable_baselines3', stable_baselines3.__version__); print('torch', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+"%VENV_PY%" -c "import vizdoom, gymnasium, stable_baselines3, torch, cv2; print('vizdoom', vizdoom.__version__); print('gymnasium', gymnasium.__version__); print('stable_baselines3', stable_baselines3.__version__); print('torch', torch.__version__); print('cv2', cv2.__version__); print('CUDA available:', torch.cuda.is_available())"
 if errorlevel 1 (
     echo [setup] Import check FAILED - see error above.
     exit /b 1
