@@ -8,6 +8,8 @@ A neural network that learns to play DOOM. Specifically: a CNN (convolutional ne
 
 This came up early in the project and was deliberately ruled out: ViZDoom needs a decision roughly every 30ms. No local LLM can generate a response that fast, and a text-only model can't even see the screen without adding a vision step on top — more latency on an already-too-slow path. So the "brain" here is a small, fast, purpose-built CNN policy instead. (There's a possible future phase — see below — where an LLM sits *above* this as a slow strategic layer, but that's explicitly deferred.)
 
+Food for thought -- Can I build a custom LLM for this? Can I build a bunch of LLMs, models/layers/nueral pathways talking to each other, planning actions? I say LLM as LLMS 4 me is the easiest measure of intelligence. 
+
 ## The core training loop, conceptually
 
 1. ViZDoom renders a frame → it's converted to grayscale, resized to 84×84 pixels, and stacked with the previous 3 frames (so the network can perceive motion, not just a static image).
