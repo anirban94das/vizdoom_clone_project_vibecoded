@@ -69,6 +69,29 @@ REWARD_KNOBS = [
 ]
 KNOBS_PER_ROW = 5
 
+# Hover text for each knob, one sentence pulled from that wrapper's docstring
+# in envs/common.py so this stays a faithful summary rather than a guess.
+KNOB_DESCRIPTIONS = {
+    "kill_reward_bonus": "Reward added each time KILLCOUNT increases (per kill). "
+    "Makes killing enemies an explicit incentive on scenarios that don't score it directly.",
+    "hit_reward_bonus": "Reward added each time HITCOUNT increases - fires on every "
+    "successful hit landed on an enemy, not just kills, so it's denser signal leading up to a kill.",
+    "exploration_bonus_per_cell": "Reward for the first visit to each discretized "
+    "position cell per episode (grid-cell novelty, not raw distance) - oscillating in place doesn't farm reward.",
+    "exploration_cell_size": "Size, in map units, of each exploration grid cell. "
+    "~32 units is about one Doom grid tile.",
+    "weapon_pickup_bonus": "Reward the first time each episode a WEAPON0-9 "
+    "ownership flag flips to owned (e.g. picking up the shotgun a dead ShotgunGuy drops).",
+    "damage_dealt_bonus": "Reward per DAMAGECOUNT point dealt to enemies - denser "
+    "than the hit bonus since it distinguishes a grazing hit from a solid one.",
+    "damage_taken_penalty": "Penalty subtracted per DAMAGE_TAKEN point received. "
+    "Enter as a positive magnitude - it's always subtracted, never added.",
+    "health_change_bonus": "Reward per net HEALTH point change this step - "
+    "positive for pickups/healing, negative for damage taken.",
+    "armor_change_bonus": "Reward per net ARMOR point change this step - "
+    "positive for armor pickups, negative as armor absorbs damage.",
+}
+
 REWARD_DEFAULTS = {
     "Basic": {
         "kill_reward_bonus": 0.0,
@@ -93,6 +116,51 @@ REWARD_DEFAULTS = {
         "armor_change_bonus": 0.0,
     },
 }
+
+
+class Tooltip:
+    """Small hover pop-up for one widget - no built-in equivalent in Tk.
+    Shown ~½s after the pointer enters the widget, positioned just below it,
+    dismissed on mouse-leave."""
+
+    DELAY_MS = 500
+
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self._after_id: str | None = None
+        self._popup: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _schedule(self, _event=None) -> None:
+        self._after_id = self.widget.after(self.DELAY_MS, self._show)
+
+    def _show(self) -> None:
+        if self._popup is not None:
+            return
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self._popup = tk.Toplevel(self.widget)
+        self._popup.wm_overrideredirect(True)
+        self._popup.wm_geometry(f"+{x}+{y}")
+        ttk.Label(
+            self._popup,
+            text=self.text,
+            background="#ffffe0",
+            relief="solid",
+            borderwidth=1,
+            wraplength=260,
+            padding=4,
+        ).pack()
+
+    def _hide(self, _event=None) -> None:
+        if self._after_id is not None:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+        if self._popup is not None:
+            self._popup.destroy()
+            self._popup = None
 
 
 def resolve_python() -> str:
@@ -164,14 +232,18 @@ class TrainingLauncher(tk.Tk):
         self.reward_vars: dict[str, tk.StringVar] = {}
         for i, (key, _flag, label) in enumerate(REWARD_KNOBS):
             row, col = divmod(i, KNOBS_PER_ROW)
-            ttk.Label(rewards_frame, text=label).grid(
+            label_widget = ttk.Label(rewards_frame, text=f"{label}  ⓘ")
+            label_widget.grid(
                 row=row * 2, column=col, padx=6, pady=(4 if row else 0, 0), sticky="w"
             )
             var = tk.StringVar()
-            ttk.Entry(rewards_frame, textvariable=var, width=10).grid(
-                row=row * 2 + 1, column=col, padx=6
-            )
+            entry_widget = ttk.Entry(rewards_frame, textvariable=var, width=10)
+            entry_widget.grid(row=row * 2 + 1, column=col, padx=6)
             self.reward_vars[key] = var
+
+            description = KNOB_DESCRIPTIONS[key]
+            Tooltip(label_widget, description)
+            Tooltip(entry_widget, description)
         self._on_level_changed()
 
         bottom_frame = ttk.Frame(self, padding=(10, 0, 10, 10))
