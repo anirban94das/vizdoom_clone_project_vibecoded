@@ -87,9 +87,11 @@ def build_from_saved_model(model_path: str) -> tuple[nn.Module, tuple[int, int, 
             x = self.mlp_extractor_policy_net(x)
             return self.action_net(x)
 
-    obs_shape = policy.observation_space.shape  # (H, W, C) as stored by SB3
-    n_stack = obs_shape[-1]
-    input_shape = (1, n_stack, obs_shape[0], obs_shape[1])
+    # SB3 wraps CnnPolicy envs with VecTransposeImage, so by the time the
+    # policy sees it, observation_space.shape is already channel-first
+    # (C, H, W) - not (H, W, C) as the raw gymnasium env declares.
+    n_stack, height, width = policy.observation_space.shape
+    input_shape = (1, n_stack, height, width)
     return ActorBranch(), input_shape
 
 

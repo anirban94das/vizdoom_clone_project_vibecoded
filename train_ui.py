@@ -247,6 +247,8 @@ class TrainingLauncher(tk.Tk):
                     self._on_process_done()
                 elif line == "__WATCH_DONE__":
                     self._on_watch_process_done()
+                elif line == "__VISUALIZE_DONE__":
+                    self._on_visualize_done()
                 else:
                     self._append_log(line)
         except queue.Empty:
@@ -321,6 +323,79 @@ class TrainingLauncher(tk.Tk):
         )
         self._append_log("\n[stop watching requested]\n")
 
+    def _start_visualize(self) -> None:
+        """Render the selected level's saved model architecture via
+        visualize_PPO_model.py and display the resulting PNG inline (right
+        panel), without disturbing whatever's in the log from a running
+        train/watch subprocess."""
+        if self.visualize_process is not None:
+            return
+
+        level = self.level_var.get()
+        model_path = MODEL_PATHS[level]
+        if not (PROJECT_ROOT / model_path).exists():
+            messagebox.showerror(
+                "Model not found", f"{model_path} doesn't exist yet - train this level first."
+            )
+            return
+
+        out_name = VIZ_OUTPUT_NAMES[level]
+        command = [self.python_exe, "visualize_PPO_model.py", "--model", model_path, "--out", out_name]
+        self._append_log(f"$ {' '.join(command)}\n")
+
+        self.visualize_process = subprocess.Popen(
+            command,
+            cwd=PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        threading.Thread(
+            target=self._read_visualize_output, args=(PROJECT_ROOT / out_name,), daemon=True
+        ).start()
+
+        self.visualize_button.configure(state="disabled")
+        self.viz_status_var.set(f"Rendering: {level}...")
+
+    def _read_visualize_output(self, out_path: Path) -> None:
+        """Runs in a worker thread - visualize_PPO_model.py is a one-shot
+        script (unlike train/watch's loops), so this just waits for it to
+        exit once and reports the result back via the same queue/prefix
+        pattern as the other subprocesses."""
+        assert self.visualize_process is not None and self.visualize_process.stdout is not None
+        for line in self.visualize_process.stdout:
+            self.output_queue.put(f"[visualize] {line}")
+        returncode = self.visualize_process.wait()
+        self._last_viz_result = (returncode, out_path)
+        self.output_queue.put("__VISUALIZE_DONE__")
+
+    def _on_visualize_done(self) -> None:
+        assert self._last_viz_result is not None
+        returncode, out_path = self._last_viz_result
+        self.visualize_process = None
+        self.visualize_button.configure(state="normal")
+
+        if returncode == 0 and out_path.exists():
+            self._load_render_image(out_path)
+            self.viz_status_var.set(f"Rendered: {out_path.name}")
+        else:
+            self.viz_status_var.set("Render failed - see log")
+            self._append_log(f"\n[visualize] process exited with code {returncode}\n")
+
+    def _load_render_image(self, path: Path) -> None:
+        """Loads the PNG via Tk's built-in PNG support (no Pillow dependency
+        needed here) and downscales it to fit the side panel using subsample,
+        since PhotoImage has no smooth resize of its own."""
+        img = tk.PhotoImage(file=str(path))
+        max_w, max_h = 420, 420
+        factor = max(1, -(-img.width() // max_w), -(-img.height() // max_h))
+        if factor > 1:
+            img = img.subsample(factor, factor)
+        self.viz_image = img  # keep a reference - Tk drops images with no live ref
+        self.viz_image_label.configure(image=img, text="")
+
     def _append_log(self, text: str) -> None:
         self.log_text.configure(state="normal")
         self.log_text.insert("end", text)
@@ -336,6 +411,11 @@ class TrainingLauncher(tk.Tk):
         if self.watch_process is not None:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(self.watch_process.pid)],
+                capture_output=True,
+            )
+        if self.visualize_process is not None:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(self.visualize_process.pid)],
                 capture_output=True,
             )
         self.destroy()
