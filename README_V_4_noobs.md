@@ -8,7 +8,8 @@ A neural network that learns to play DOOM. Specifically: a CNN (convolutional ne
 
 This came up early in the project and was deliberately ruled out: ViZDoom needs a decision roughly every 30ms. No local LLM can generate a response that fast, and a text-only model can't even see the screen without adding a vision step on top — more latency on an already-too-slow path. So the "brain" here is a small, fast, purpose-built CNN policy instead. (There's a possible future phase — see below — where an LLM sits *above* this as a slow strategic layer, but that's explicitly deferred.)
 
-Food for thought -- Can I build a custom LLM for this? Can I build a bunch of LLMs, models/layers/nueral pathways talking to each other, planning actions? I say LLM as LLMS 4 me is the easiest measure of intelligence. 
+## Food for thought
+    Can I build a custom LLM for this? Can I build a bunch of LLMs, models/layers/nueral pathways talking to each other, planning actions? I say LLM as LLMS 4 me is the easiest measure of intelligence. 
 
 ## The core training loop, conceptually
 
@@ -18,6 +19,10 @@ Food for thought -- Can I build a custom LLM for this? Can I build a bunch of LL
 4. The scenario's built-in reward (plus optional bonus shaping — see below) tells the network whether that was good or bad.
 5. PPO uses thousands of these steps, run across parallel game instances, to gradually improve the policy.
 
+## Food for thought
+    I want to build a prettier UI so that this can look better. Think a window application, that can visualize the run, or even give the network a test level to run/play in. 
+    When I want the take the latest model to play a level. I want it to view the complete game(full res), something I can stream ideally. 
+    
 ## Two scenarios currently in play
 
 - **`basic.wad`** — one room, one monster. The simplest built-in scenario, used to prove the pipeline works end-to-end. It already performs well.
