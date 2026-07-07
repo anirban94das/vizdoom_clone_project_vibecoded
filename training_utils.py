@@ -43,7 +43,15 @@ class EpisodeRecapCallback(BaseCallback):
     past runs stay visible instead of being overwritten like the model file.
     """
 
-    STAT_KEYS = ("reward", "kills", "hits", "cells_explored", "weapons_picked_up")
+    STAT_KEYS = (
+        "reward",
+        "kills",
+        "hits",
+        "damage_dealt",
+        "damage_taken",
+        "cells_explored",
+        "weapons_picked_up",
+    )
 
     def __init__(self, scenario: str, history_path: Path, verbose: int = 0) -> None:
         super().__init__(verbose)
@@ -61,6 +69,8 @@ class EpisodeRecapCallback(BaseCallback):
                         "reward": episode["r"],
                         "kills": stats["kills"],
                         "hits": stats["hits"],
+                        "damage_dealt": stats["damage_dealt"],
+                        "damage_taken": stats["damage_taken"],
                         "cells_explored": stats["cells_explored"],
                         "weapons_picked_up": stats["weapons_picked_up"],
                     }
@@ -86,13 +96,18 @@ class EpisodeRecapCallback(BaseCallback):
             "episodes_this_run": n,
         }
         for key in self.STAT_KEYS:
+            summary[f"{key}_overall"] = _mean(self._episodes, key)
             summary[f"{key}_start"] = _mean(early, key)
             summary[f"{key}_end"] = _mean(late, key)
 
         print(f"\n[recap] {self.scenario} - {n} episodes this run "
-              f"(first {len(early)} vs last {len(late)}, {self.model.num_timesteps} cumulative timesteps):")
+              f"({self.model.num_timesteps} cumulative timesteps):")
+        print("  overall averages (this run):")
         for key in self.STAT_KEYS:
-            print(f"  {key:18s}: {summary[f'{key}_start']:8.2f} -> {summary[f'{key}_end']:8.2f}")
+            print(f"    {key:18s}: {summary[f'{key}_overall']:8.2f}")
+        print(f"  trend (first {len(early)} vs last {len(late)} episodes):")
+        for key in self.STAT_KEYS:
+            print(f"    {key:18s}: {summary[f'{key}_start']:8.2f} -> {summary[f'{key}_end']:8.2f}")
 
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.history_path, "a") as f:

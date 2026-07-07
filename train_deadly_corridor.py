@@ -53,6 +53,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--damage-taken-penalty", type=float, default=0.0)
     parser.add_argument("--health-change-bonus", type=float, default=0.0)
     parser.add_argument("--armor-change-bonus", type=float, default=0.0)
+    # Guards against PPO's policy-collapse failure mode (see incident: reward
+    # crashed from +340 to -46,000 around step 1.6M and never recovered on its
+    # own). ent_coef keeps a floor of exploration so the policy can't converge
+    # to a fully deterministic bad behavior; target_kl aborts a PPO update
+    # early if it would change the policy too much in one step, which is the
+    # mechanism suspected to have caused the collapse in the first place.
+    parser.add_argument("--ent-coef", type=float, default=0.01)
+    parser.add_argument("--target-kl", type=float, default=0.03)
     return parser.parse_args()
 
 
@@ -70,6 +78,7 @@ def main() -> None:
         armor_change_bonus=args.armor_change_bonus,
     )
     print(f"Reward shaping: {env_kwargs}")
+    print(f"PPO stability guards: ent_coef={args.ent_coef}, target_kl={args.target_kl}")
 
     # SubprocVecEnv runs each ViZDoom instance in its own process. ViZDoom's
     # engine step is CPU-bound (software rendering), so DummyVecEnv's
@@ -98,6 +107,8 @@ def main() -> None:
             env=vec_env,
             device="cuda",
             tensorboard_log="logs/tensorboard",
+            ent_coef=args.ent_coef,
+            target_kl=args.target_kl,
         )
         reset_num_timesteps = False
     elif WARM_START_PATH.exists():
@@ -111,6 +122,8 @@ def main() -> None:
             env=vec_env,
             device="cuda",
             tensorboard_log="logs/tensorboard",
+            ent_coef=args.ent_coef,
+            target_kl=args.target_kl,
         )
         reset_num_timesteps = True
     else:
@@ -120,6 +133,8 @@ def main() -> None:
             verbose=1,
             tensorboard_log="logs/tensorboard",
             device="cuda",
+            ent_coef=args.ent_coef,
+            target_kl=args.target_kl,
         )
         reset_num_timesteps = True
 

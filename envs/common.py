@@ -133,6 +133,8 @@ class EpisodeStatsWrapper(gym.Wrapper):
         self.exploration_cell_size = exploration_cell_size
         self._visited: set[tuple[int, int]] = set()
         self._owned_at_reset: set[int] = set()
+        self._damage_dealt_at_reset = 0.0
+        self._damage_taken_at_reset = 0.0
 
     def _cell(self) -> tuple[int, int]:
         game = self.unwrapped.game
@@ -146,8 +148,11 @@ class EpisodeStatsWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
+        game = self.unwrapped.game
         self._visited = {self._cell()}
         self._owned_at_reset = self._owned_weapons()
+        self._damage_dealt_at_reset = game.get_game_variable(vzd.GameVariable.DAMAGECOUNT)
+        self._damage_taken_at_reset = game.get_game_variable(vzd.GameVariable.DAMAGE_TAKEN)
         return obs, info
 
     def step(self, action):
@@ -158,6 +163,8 @@ class EpisodeStatsWrapper(gym.Wrapper):
             info["episode_stats"] = {
                 "kills": game.get_game_variable(vzd.GameVariable.KILLCOUNT),
                 "hits": game.get_game_variable(vzd.GameVariable.HITCOUNT),
+                "damage_dealt": game.get_game_variable(vzd.GameVariable.DAMAGECOUNT) - self._damage_dealt_at_reset,
+                "damage_taken": game.get_game_variable(vzd.GameVariable.DAMAGE_TAKEN) - self._damage_taken_at_reset,
                 "cells_explored": len(self._visited),
                 "weapons_picked_up": len(self._owned_weapons() - self._owned_at_reset),
             }
