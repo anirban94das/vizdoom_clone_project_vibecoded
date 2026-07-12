@@ -1,150 +1,56 @@
 """Train a PPO agent on ViZDoom's deadly_corridor.wad scenario.
 
-Mirrors train_basic.py's structure and auto-resume behavior, pointed at the
-harder deadly_corridor scenario (envs.deadly_corridor_env), which now
-enables reward shaping by default (kill_reward_bonus + exploration bonus —
-see envs/deadly_corridor_env.py). Because the reward function changed from
-the earlier "ppo_deadly_corridor" baseline run, this trains/logs under a new
-"ppo_deadly_corridor_shaped" identity rather than silently overwriting that
-run's history, but still warm-starts from its final weights (below) so the
-already-learned visual features/aiming/movement aren't thrown away.
+Trains and logs under the "ppo_deadly_corridor_shaped" identity (not the older
+"ppo_deadly_corridor" baseline prefix) since reward shaping is on by default
+— a different reward function than the baseline run it evolved from. If
+models/latest/ppo_deadly_corridor_shaped.zip doesn't exist yet, it
+warm-starts weights from models/ppo_deadly_corridor.zip (the baseline run's
+final saved model): visual features/aiming/movement carry over, but the
+timestep/TensorBoard counter resets since the reward scale underneath
+changed — expect a visible jump/dip in the reward curve at that handoff.
 
-Do not run this alongside train_basic.py — each spawns N_ENVS SubprocVecEnv
-workers, and this machine has 8 physical cores, so running both at once
-oversubscribes and slows both down.
+--ent-coef / --target-kl default to 0.01 / 0.03 here (unlike the other
+scenarios' SB3 defaults of 0.0/None): guards against PPO's policy-collapse
+failure mode seen on this scenario (reward crashed from +340 to -46,000
+around step 1.6M and never recovered). ent_coef keeps a floor of
+exploration; target_kl aborts an update that would change the policy too
+much in one step, the suspected collapse mechanism.
+
+See train_common.run_training for the shared auto-resume/checkpoint/recap
+behavior. Do not run alongside another train_*.py (8 physical cores).
 """
 
-import argparse
-from pathlib import Path
-
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecFrameStack
-
+from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.deadly_corridor_env import make_deadly_corridor_env
-from training_utils import EpisodeRecapCallback, OverwriteCheckpointCallback
 
-# deadly_corridor is a harder, sparser-reward scenario (doom_skill=5, must
-# navigate under fire) than basic.wad's ~100k-step convergence. Starting
-# higher and relying on auto-resume (below) to add more later if needed.
+# Harder, sparser-reward scenario (doom_skill=5, must navigate under fire)
+# than basic.wad's ~100k-step convergence.
 TOTAL_TIMESTEPS = 300_000
-# Same physical-core reasoning as train_basic.py (unchanged hardware).
-N_ENVS = 12
-# Single overwritten file, not a growing set of step-numbered checkpoints —
-# this is both the resume point and the only saved copy of this scenario's model.
-MODEL_PATH = Path("models/latest/ppo_deadly_corridor_shaped.zip")
+MODEL_PATH = "models/latest/ppo_deadly_corridor_shaped.zip"
 # Pre-reward-shaping baseline run's final saved model — used only as a
 # one-time warm start if MODEL_PATH doesn't exist yet.
-WARM_START_PATH = Path("models/ppo_deadly_corridor.zip")
+WARM_START_PATH = "models/ppo_deadly_corridor.zip"
 
-
-def parse_args() -> argparse.Namespace:
-    """Reward-shaping bonuses, defaulting to this scenario's existing values —
-    pass flags to override for experimentation. Note: overriding these doesn't
-    invalidate an existing checkpoint (see module docstring on warm-starting);
-    it just changes the reward the resumed agent trains against going forward."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--kill-reward-bonus", type=float, default=20.0)
-    parser.add_argument("--hit-reward-bonus", type=float, default=5.0)
-    parser.add_argument("--exploration-bonus-per-cell", type=float, default=1.0)
-    parser.add_argument("--exploration-cell-size", type=float, default=32.0)
-    parser.add_argument("--weapon-pickup-bonus", type=float, default=15.0)
-    parser.add_argument("--damage-dealt-bonus", type=float, default=0.0)
-    parser.add_argument("--damage-taken-penalty", type=float, default=0.0)
-    parser.add_argument("--health-change-bonus", type=float, default=0.0)
-    parser.add_argument("--armor-change-bonus", type=float, default=0.0)
-    # Guards against PPO's policy-collapse failure mode (see incident: reward
-    # crashed from +340 to -46,000 around step 1.6M and never recovered on its
-    # own). ent_coef keeps a floor of exploration so the policy can't converge
-    # to a fully deterministic bad behavior; target_kl aborts a PPO update
-    # early if it would change the policy too much in one step, which is the
-    # mechanism suspected to have caused the collapse in the first place.
-    parser.add_argument("--ent-coef", type=float, default=0.01)
-    parser.add_argument("--target-kl", type=float, default=0.03)
-    return parser.parse_args()
+REWARD_DEFAULTS = {
+    "kill_reward_bonus": 20.0,
+    "hit_reward_bonus": 5.0,
+    "exploration_bonus_per_cell": 1.0,
+    "exploration_cell_size": 32.0,
+    "weapon_pickup_bonus": 15.0,
+}
 
 
 def main() -> None:
-    args = parse_args()
-    env_kwargs = dict(
-        kill_reward_bonus=args.kill_reward_bonus,
-        hit_reward_bonus=args.hit_reward_bonus,
-        exploration_bonus_per_cell=args.exploration_bonus_per_cell,
-        exploration_cell_size=args.exploration_cell_size,
-        weapon_pickup_bonus=args.weapon_pickup_bonus,
-        damage_dealt_bonus=args.damage_dealt_bonus,
-        damage_taken_penalty=args.damage_taken_penalty,
-        health_change_bonus=args.health_change_bonus,
-        armor_change_bonus=args.armor_change_bonus,
-    )
-    print(f"Reward shaping: {env_kwargs}")
-    print(f"PPO stability guards: ent_coef={args.ent_coef}, target_kl={args.target_kl}")
-
-    # SubprocVecEnv runs each ViZDoom instance in its own process. ViZDoom's
-    # engine step is CPU-bound (software rendering), so DummyVecEnv's
-    # single-process/sequential stepping left most cores idle.
-    vec_env = make_vec_env(
-        make_deadly_corridor_env, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv, env_kwargs=env_kwargs
-    )
-    vec_env = VecFrameStack(vec_env, n_stack=4)
-
-    # save_freq is per-env steps; the callback fires every N_ENVS actual
-    # timesteps, so this saves roughly every 10_000 real timesteps.
-    checkpoint_callback = OverwriteCheckpointCallback(
-        save_freq=max(10_000 // N_ENVS, 1),
-        save_path=MODEL_PATH,
-        verbose=1,
-    )
-    recap_callback = EpisodeRecapCallback(
+    args = build_parser(REWARD_DEFAULTS, ent_coef=0.01, target_kl=0.03).parse_args()
+    run_training(
+        make_env_fn=make_deadly_corridor_env,
+        env_kwargs=reward_kwargs_from_args(args),
         scenario="ppo_deadly_corridor_shaped",
-        history_path=Path("logs/training_history.jsonl"),
-    )
-
-    if MODEL_PATH.exists():
-        print(f"Resuming shaped-reward run from: {MODEL_PATH}")
-        model = PPO.load(
-            MODEL_PATH,
-            env=vec_env,
-            device="cuda",
-            tensorboard_log="logs/tensorboard",
-            ent_coef=args.ent_coef,
-            target_kl=args.target_kl,
-        )
-        reset_num_timesteps = False
-    elif WARM_START_PATH.exists():
-        # Weights carry over (visual features/aiming/movement), but the
-        # reward function underneath has changed, so timesteps/TensorBoard
-        # logging start fresh — expect a visible jump/dip in the reward
-        # curve right at this handoff.
-        print(f"Warm-starting from pre-shaping model: {WARM_START_PATH}")
-        model = PPO.load(
-            WARM_START_PATH,
-            env=vec_env,
-            device="cuda",
-            tensorboard_log="logs/tensorboard",
-            ent_coef=args.ent_coef,
-            target_kl=args.target_kl,
-        )
-        reset_num_timesteps = True
-    else:
-        model = PPO(
-            "CnnPolicy",
-            vec_env,
-            verbose=1,
-            tensorboard_log="logs/tensorboard",
-            device="cuda",
-            ent_coef=args.ent_coef,
-            target_kl=args.target_kl,
-        )
-        reset_num_timesteps = True
-
-    model.learn(
+        model_path=MODEL_PATH,
         total_timesteps=TOTAL_TIMESTEPS,
-        tb_log_name="ppo_deadly_corridor_shaped",
-        callback=[checkpoint_callback, recap_callback],
-        reset_num_timesteps=reset_num_timesteps,
+        args=args,
+        warm_start_path=WARM_START_PATH,
     )
-    model.save(MODEL_PATH)
 
 
 if __name__ == "__main__":

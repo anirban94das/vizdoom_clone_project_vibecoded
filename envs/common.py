@@ -292,21 +292,24 @@ class ArmorChangeBonus(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
-def make_vizdoom_env(
+def make_raw_vizdoom_env(
     env_id: str,
     render_mode: str | None = None,
     frame_skip: int = 4,
     screen_resolution: vzd.ScreenResolution = vzd.ScreenResolution.RES_160X120,
-    kill_reward_bonus: float = 0.0,
-    exploration_bonus_per_cell: float = 0.0,
-    exploration_cell_size: float = 32.0,
-    weapon_pickup_bonus: float = 0.0,
-    hit_reward_bonus: float = 0.0,
-    damage_dealt_bonus: float = 0.0,
-    damage_taken_penalty: float = 0.0,
-    health_change_bonus: float = 0.0,
-    armor_change_bonus: float = 0.0,
+    **extra_game_kwargs,
 ) -> gym.Env:
+    """Creates the bare gym.make(...) env with the per-process config file and
+    startup jitter, before any observation/reward wrapping. Split out from
+    make_vizdoom_env so envs that need a different observation pipeline (e.g.
+    basic_audio's screen+audio dict) can reuse the launch logic.
+
+    extra_game_kwargs are forwarded to gym.make: the gymnasium wrapper passes
+    unknown kwargs to DoomGame.set_config() after loading the scenario's .cfg,
+    so any config-file key (doom_map, doom_game_path, episode_timeout,
+    map_exit_reward, death_penalty, audio_buffer_enabled, ...) — and
+    constructor args like max_buttons_pressed — can be overridden per env.
+    """
     # Each SubprocVecEnv worker is a separate OS process; give it its own
     # ZDoom config file so concurrent instances don't race on the shared
     # default _vizdoom.ini (which manifests as "viz_instance_id is write
@@ -321,7 +324,7 @@ def make_vizdoom_env(
     # engine boots out instead of hitting them all simultaneously.
     time.sleep(random.uniform(0, 2.0))
 
-    env = gym.make(
+    return gym.make(
         env_id,
         render_mode=render_mode,
         frame_skip=frame_skip,
@@ -331,7 +334,33 @@ def make_vizdoom_env(
         # supports (still comfortably >84px) to cut the software rasterizer's
         # per-step cost in every parallel worker.
         screen_resolution=screen_resolution,
+        # Force a uniform 3-channel screen buffer. Most scenario .cfgs use
+        # CRCGCB (which the gymnasium wrapper silently coerces to RGB24
+        # anyway), but rocket_basic.cfg / simpler_basic.cfg declare GRAY8,
+        # which the wrapper keeps as single-channel — that would break the
+        # GrayscaleObservation step below, which expects 3 channels in.
+        screen_format=vzd.ScreenFormat.RGB24,
+        **extra_game_kwargs,
     )
+
+
+def apply_stats_and_reward_shaping(
+    env: gym.Env,
+    kill_reward_bonus: float = 0.0,
+    exploration_bonus_per_cell: float = 0.0,
+    exploration_cell_size: float = 32.0,
+    weapon_pickup_bonus: float = 0.0,
+    hit_reward_bonus: float = 0.0,
+    damage_dealt_bonus: float = 0.0,
+    damage_taken_penalty: float = 0.0,
+    health_change_bonus: float = 0.0,
+    armor_change_bonus: float = 0.0,
+) -> gym.Env:
+    """Applies the always-on EpisodeStatsWrapper plus whichever opt-in reward
+    bonuses are non-zero. Shared by make_vizdoom_env and any env module with
+    a custom observation pipeline (these wrappers only touch reward/info, so
+    they're observation-agnostic and must go on before observation wrappers
+    change the dict shape)."""
     # Always on (unlike the opt-in bonuses below) so every scenario gets a
     # behavior recap - kills/hits/exploration/weapons - even when none of
     # the reward bonuses are enabled for it.
@@ -352,6 +381,44 @@ def make_vizdoom_env(
         env = HealthChangeBonus(env, health_change_bonus)
     if armor_change_bonus:
         env = ArmorChangeBonus(env, armor_change_bonus)
+    return env
+
+
+def make_vizdoom_env(
+    env_id: str,
+    render_mode: str | None = None,
+    frame_skip: int = 4,
+    screen_resolution: vzd.ScreenResolution = vzd.ScreenResolution.RES_160X120,
+    kill_reward_bonus: float = 0.0,
+    exploration_bonus_per_cell: float = 0.0,
+    exploration_cell_size: float = 32.0,
+    weapon_pickup_bonus: float = 0.0,
+    hit_reward_bonus: float = 0.0,
+    damage_dealt_bonus: float = 0.0,
+    damage_taken_penalty: float = 0.0,
+    health_change_bonus: float = 0.0,
+    armor_change_bonus: float = 0.0,
+    **extra_game_kwargs,
+) -> gym.Env:
+    env = make_raw_vizdoom_env(
+        env_id,
+        render_mode=render_mode,
+        frame_skip=frame_skip,
+        screen_resolution=screen_resolution,
+        **extra_game_kwargs,
+    )
+    env = apply_stats_and_reward_shaping(
+        env,
+        kill_reward_bonus=kill_reward_bonus,
+        exploration_bonus_per_cell=exploration_bonus_per_cell,
+        exploration_cell_size=exploration_cell_size,
+        weapon_pickup_bonus=weapon_pickup_bonus,
+        hit_reward_bonus=hit_reward_bonus,
+        damage_dealt_bonus=damage_dealt_bonus,
+        damage_taken_penalty=damage_taken_penalty,
+        health_change_bonus=health_change_bonus,
+        armor_change_bonus=armor_change_bonus,
+    )
     env = ScreenOnlyObservation(env)
     env = GrayscaleObservation(env, keep_dim=False)
     # ResizeObservation calls cv2.resize, which silently drops a size-1

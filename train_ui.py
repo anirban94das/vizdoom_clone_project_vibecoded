@@ -1,13 +1,13 @@
 """Small desktop UI to launch training and live-watching for a chosen ViZDoom scenario.
 
-Wraps the existing train_basic.py / train_deadly_corridor.py and
-watch_agent.py / watch_agent_deadly_corridor.py entry points as subprocesses
-(they're unmodified — this is just a launcher). Runs the project's own
-.venv interpreter so it doesn't matter which Python started this UI. Only
-one training run is allowed at a time from this window, since
-train_deadly_corridor.py's docstring already warns against running both
-scripts simultaneously (each spawns N_ENVS SubprocVecEnv worker processes and
-this machine has 8 physical cores). Watching runs as its own independent
+Wraps the train_*.py / watch_agent_*.py entry points (all 14 levels, incl.
+the full Doom E1M1 / Doom II MAP01 levels via train_doom_level.py --map) and
+export_model.py / import_model.py as subprocesses (they're unmodified — this
+is just a launcher). Runs the project's own .venv interpreter so it doesn't
+matter which Python started this UI. Only one training run is allowed at a
+time from this window, since the train scripts warn against running two
+simultaneously (each spawns N_ENVS SubprocVecEnv worker processes and this
+machine has 8 physical cores). Watching runs as its own independent
 subprocess (single-process DummyVecEnv, not SubprocVecEnv) and opens its own
 foreground ViZDoom window, so it can run alongside training without that
 concern.
@@ -21,38 +21,93 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+# Level -> the command (script + any extra args) to launch training. Values
+# are argument lists (not bare script names) because the full-level entries
+# share one script parameterized by --map.
 LEVELS = {
-    "Basic": "train_basic.py",
-    "Deadly Corridor (shaped)": "train_deadly_corridor.py",
-    "Defend the Center": "train_defend_the_center.py",
+    "Basic": ["train_basic.py"],
+    "Simpler Basic": ["train_simpler_basic.py"],
+    "Rocket Basic": ["train_rocket_basic.py"],
+    "Basic Audio (screen+sound)": ["train_basic_audio.py"],
+    "Deadly Corridor (shaped)": ["train_deadly_corridor.py"],
+    "Defend the Center": ["train_defend_the_center.py"],
+    "Defend the Line": ["train_defend_the_line.py"],
+    "Health Gathering": ["train_health_gathering.py"],
+    "Health Gathering Supreme": ["train_health_gathering_supreme.py"],
+    "My Way Home": ["train_my_way_home.py"],
+    "Predict Position": ["train_predict_position.py"],
+    "Take Cover": ["train_take_cover.py"],
+    "Doom E1M1 (full level)": ["train_doom_level.py", "--map", "E1M1"],
+    "Doom II MAP01 (full level)": ["train_doom_level.py", "--map", "MAP01"],
 }
 
 # watch_agent_*.py opens its own visible ViZDoom window (render_mode="human")
 # and reloads that scenario's models/latest/*.zip before every episode, so it
 # can run alongside training to show behavior updating live.
 WATCH_SCRIPTS = {
-    "Basic": "watch_agent.py",
-    "Deadly Corridor (shaped)": "watch_agent_deadly_corridor.py",
-    "Defend the Center": "watch_agent_defend_the_center.py",
+    "Basic": ["watch_agent.py"],
+    "Simpler Basic": ["watch_agent_simpler_basic.py"],
+    "Rocket Basic": ["watch_agent_rocket_basic.py"],
+    "Basic Audio (screen+sound)": ["watch_agent_basic_audio.py"],
+    "Deadly Corridor (shaped)": ["watch_agent_deadly_corridor.py"],
+    "Defend the Center": ["watch_agent_defend_the_center.py"],
+    "Defend the Line": ["watch_agent_defend_the_line.py"],
+    "Health Gathering": ["watch_agent_health_gathering.py"],
+    "Health Gathering Supreme": ["watch_agent_health_gathering_supreme.py"],
+    "My Way Home": ["watch_agent_my_way_home.py"],
+    "Predict Position": ["watch_agent_predict_position.py"],
+    "Take Cover": ["watch_agent_take_cover.py"],
+    "Doom E1M1 (full level)": ["watch_agent_doom_level.py", "--map", "E1M1"],
+    "Doom II MAP01 (full level)": ["watch_agent_doom_level.py", "--map", "MAP01"],
+}
+
+# Level -> the scenario key export_model.py / import_model.py take (see
+# model_io.SCENARIO_MODELS; doom_<MAP> keys resolve dynamically there).
+SCENARIO_KEYS = {
+    "Basic": "basic",
+    "Simpler Basic": "simpler_basic",
+    "Rocket Basic": "rocket_basic",
+    "Basic Audio (screen+sound)": "basic_audio",
+    "Deadly Corridor (shaped)": "deadly_corridor",
+    "Defend the Center": "defend_the_center",
+    "Defend the Line": "defend_the_line",
+    "Health Gathering": "health_gathering",
+    "Health Gathering Supreme": "health_gathering_supreme",
+    "My Way Home": "my_way_home",
+    "Predict Position": "predict_position",
+    "Take Cover": "take_cover",
+    "Doom E1M1 (full level)": "doom_E1M1",
+    "Doom II MAP01 (full level)": "doom_MAP01",
 }
 
 # Mirrors each train_*.py's MODEL_PATH constant - the file visualize_PPO_model.py
-# is pointed at for the currently selected level.
+# is pointed at for the currently selected level. Kept in sync with
+# model_io.SCENARIO_MODELS via the scenario key.
 MODEL_PATHS = {
     "Basic": "models/latest/ppo_basic.zip",
+    "Simpler Basic": "models/latest/ppo_simpler_basic.zip",
+    "Rocket Basic": "models/latest/ppo_rocket_basic.zip",
+    "Basic Audio (screen+sound)": "models/latest/ppo_basic_audio.zip",
     "Deadly Corridor (shaped)": "models/latest/ppo_deadly_corridor_shaped.zip",
     "Defend the Center": "models/latest/ppo_defend_the_center.zip",
+    "Defend the Line": "models/latest/ppo_defend_the_line.zip",
+    "Health Gathering": "models/latest/ppo_health_gathering.zip",
+    "Health Gathering Supreme": "models/latest/ppo_health_gathering_supreme.zip",
+    "My Way Home": "models/latest/ppo_my_way_home.zip",
+    "Predict Position": "models/latest/ppo_predict_position.zip",
+    "Take Cover": "models/latest/ppo_take_cover.zip",
+    "Doom E1M1 (full level)": "models/latest/ppo_doom_E1M1.zip",
+    "Doom II MAP01 (full level)": "models/latest/ppo_doom_MAP01.zip",
 }
 
-# One render output per level so switching levels doesn't clobber the other's image.
+# One render output per level so switching levels doesn't clobber the other's
+# image, named after the scenario key.
 VIZ_OUTPUT_NAMES = {
-    "Basic": "ppo_actor_render_basic.png",
-    "Deadly Corridor (shaped)": "ppo_actor_render_deadly_corridor.png",
-    "Defend the Center": "ppo_actor_render_defend_the_center.png",
+    level: f"ppo_actor_render_{key}.png" for level, key in SCENARIO_KEYS.items()
 }
 
 # Reward-shaping knobs, one entry per train_*.py --flag (wrapped across
@@ -96,40 +151,52 @@ KNOB_DESCRIPTIONS = {
     "positive for armor pickups, negative as armor absorbs damage.",
 }
 
+def _shaping(**overrides: float) -> dict[str, float]:
+    """Full nine-knob dict: everything off except the given overrides —
+    mirrors train_common.build_parser's fallback behavior so each entry
+    below only states what that scenario's train_*.py actually defaults on."""
+    base = {key: 0.0 for key, _flag, _label in REWARD_KNOBS}
+    base["exploration_cell_size"] = 32.0
+    base.update(overrides)
+    return base
+
+
+# Mirrors each train_*.py's REWARD_DEFAULTS so leaving every field untouched
+# reproduces that script's own defaults exactly.
 REWARD_DEFAULTS = {
-    "Basic": {
-        "kill_reward_bonus": 0.0,
-        "hit_reward_bonus": 0.0,
-        "exploration_bonus_per_cell": 0.0,
-        "exploration_cell_size": 32.0,
-        "weapon_pickup_bonus": 0.0,
-        "damage_dealt_bonus": 0.0,
-        "damage_taken_penalty": 0.0,
-        "health_change_bonus": 0.0,
-        "armor_change_bonus": 0.0,
-    },
-    "Deadly Corridor (shaped)": {
-        "kill_reward_bonus": 20.0,
-        "hit_reward_bonus": 5.0,
-        "exploration_bonus_per_cell": 1.0,
-        "exploration_cell_size": 32.0,
-        "weapon_pickup_bonus": 15.0,
-        "damage_dealt_bonus": 0.0,
-        "damage_taken_penalty": 0.0,
-        "health_change_bonus": 0.0,
-        "armor_change_bonus": 0.0,
-    },
-    "Defend the Center": {
-        "kill_reward_bonus": 20.0,
-        "hit_reward_bonus": 5.0,
-        "exploration_bonus_per_cell": 0.0,
-        "exploration_cell_size": 32.0,
-        "weapon_pickup_bonus": 0.0,
-        "damage_dealt_bonus": 0.0,
-        "damage_taken_penalty": 0.0,
-        "health_change_bonus": 0.0,
-        "armor_change_bonus": 0.0,
-    },
+    "Basic": _shaping(),
+    "Simpler Basic": _shaping(),
+    "Rocket Basic": _shaping(),
+    "Basic Audio (screen+sound)": _shaping(),
+    "Deadly Corridor (shaped)": _shaping(
+        kill_reward_bonus=20.0,
+        hit_reward_bonus=5.0,
+        exploration_bonus_per_cell=1.0,
+        weapon_pickup_bonus=15.0,
+    ),
+    "Defend the Center": _shaping(kill_reward_bonus=20.0, hit_reward_bonus=5.0),
+    "Defend the Line": _shaping(kill_reward_bonus=20.0, hit_reward_bonus=5.0),
+    "Health Gathering": _shaping(health_change_bonus=1.0),
+    "Health Gathering Supreme": _shaping(health_change_bonus=1.0),
+    "My Way Home": _shaping(exploration_bonus_per_cell=1.0),
+    "Predict Position": _shaping(kill_reward_bonus=100.0, hit_reward_bonus=25.0),
+    "Take Cover": _shaping(damage_taken_penalty=0.5),
+    "Doom E1M1 (full level)": _shaping(
+        kill_reward_bonus=20.0,
+        hit_reward_bonus=5.0,
+        exploration_bonus_per_cell=1.0,
+        weapon_pickup_bonus=15.0,
+        health_change_bonus=1.0,
+        armor_change_bonus=0.5,
+    ),
+    "Doom II MAP01 (full level)": _shaping(
+        kill_reward_bonus=20.0,
+        hit_reward_bonus=5.0,
+        exploration_bonus_per_cell=1.0,
+        weapon_pickup_bonus=15.0,
+        health_change_bonus=1.0,
+        armor_change_bonus=0.5,
+    ),
 }
 
 
@@ -188,7 +255,8 @@ class TrainingLauncher(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("ViZDoom Training Launcher")
-        self.geometry("1080x560")
+        # Wide enough for the full top-row button set (incl. Export/Import).
+        self.geometry("1280x600")
 
         self.python_exe = resolve_python()
         self.process: subprocess.Popen | None = None
@@ -234,6 +302,15 @@ class TrainingLauncher(tk.Tk):
             top, text="Visualize Model", command=self._start_visualize
         )
         self.visualize_button.pack(side="left", padx=(16, 4))
+
+        # One-click model file management for the selected level — thin
+        # wrappers around export_model.py / import_model.py (see model_io.py),
+        # consistent with this UI's launcher-only role.
+        self.export_button = ttk.Button(top, text="Export Model", command=self._export_model)
+        self.export_button.pack(side="left", padx=(16, 4))
+
+        self.import_button = ttk.Button(top, text="Import Model", command=self._import_model)
+        self.import_button.pack(side="left", padx=4)
 
         self.status_var = tk.StringVar(value="Idle")
         ttk.Label(top, textvariable=self.status_var).pack(side="right")
@@ -317,8 +394,7 @@ class TrainingLauncher(tk.Tk):
             messagebox.showerror("Invalid reward value", str(exc))
             return
 
-        script = LEVELS[self.level_var.get()]
-        command = [self.python_exe, script, *reward_args]
+        command = [self.python_exe, *LEVELS[self.level_var.get()], *reward_args]
         self._append_log(f"$ {' '.join(command)}\n")
 
         self.process = subprocess.Popen(
@@ -387,8 +463,7 @@ class TrainingLauncher(tk.Tk):
             return
 
         level = self.level_var.get()
-        script = WATCH_SCRIPTS[level]
-        command = [self.python_exe, script]
+        command = [self.python_exe, *WATCH_SCRIPTS[level]]
         self._append_log(f"$ {' '.join(command)}\n")
 
         self.watch_process = subprocess.Popen(
@@ -499,6 +574,86 @@ class TrainingLauncher(tk.Tk):
             img = img.subsample(factor, factor)
         self.viz_image = img  # keep a reference - Tk drops images with no live ref
         self.viz_image_label.configure(image=img, text="")
+
+    def _run_one_shot(self, command: list[str], prefix: str) -> subprocess.CompletedProcess:
+        """Runs a quick command (export/import are file copies, well under a
+        second) synchronously, logging its output with a [prefix] like the
+        long-running subprocesses get."""
+        self._append_log(f"$ {' '.join(command)}\n")
+        result = subprocess.run(
+            command, cwd=PROJECT_ROOT, capture_output=True, text=True
+        )
+        for stream in (result.stdout, result.stderr):
+            if stream:
+                for line in stream.splitlines():
+                    self._append_log(f"[{prefix}] {line}\n")
+        return result
+
+    def _export_model(self) -> None:
+        """Save the selected level's current model to a file of the user's
+        choosing (with scenario metadata embedded — see model_io.py)."""
+        level = self.level_var.get()
+        key = SCENARIO_KEYS[level]
+        if not (PROJECT_ROOT / MODEL_PATHS[level]).exists():
+            messagebox.showerror(
+                "Model not found",
+                f"{MODEL_PATHS[level]} doesn't exist yet - train this level first.",
+            )
+            return
+        dest = filedialog.asksaveasfilename(
+            title=f"Export {level} model",
+            defaultextension=".zip",
+            initialfile=f"ppo_{key}_export.zip",
+            filetypes=[("SB3 model", "*.zip")],
+        )
+        if not dest:
+            return
+        result = self._run_one_shot(
+            [self.python_exe, "export_model.py", key, "--out", dest], "export"
+        )
+        if result.returncode == 0:
+            messagebox.showinfo("Export complete", f"Exported to:\n{dest}")
+        else:
+            messagebox.showerror("Export failed", result.stderr or "See log for details.")
+
+    def _import_model(self) -> None:
+        """Install an exported model file as the selected level's active
+        model (models/latest/), backing up the existing one. Retries with
+        --force after confirmation if the file's scenario tag mismatches
+        (import_model.py signals that with exit code 3)."""
+        level = self.level_var.get()
+        key = SCENARIO_KEYS[level]
+        if self.process is not None:
+            if not messagebox.askyesno(
+                "Training is running",
+                "This level may be training right now - its next checkpoint "
+                "save would overwrite the imported model. Import anyway?",
+            ):
+                return
+        src = filedialog.askopenfilename(
+            title=f"Import model for {level}",
+            filetypes=[("SB3 model", "*.zip"), ("All files", "*.*")],
+        )
+        if not src:
+            return
+        command = [self.python_exe, "import_model.py", src, "--scenario", key]
+        result = self._run_one_shot(command, "import")
+        if result.returncode == 3:  # scenario-tag mismatch; offer override
+            if messagebox.askyesno(
+                "Scenario mismatch",
+                f"{result.stderr.strip()}\n\nImport anyway?",
+            ):
+                result = self._run_one_shot([*command, "--force"], "import")
+            else:
+                return
+        if result.returncode == 0:
+            messagebox.showinfo(
+                "Import complete",
+                f"{level} will now train/watch from the imported model.\n"
+                "(The previous model, if any, was backed up to models/backups/.)",
+            )
+        else:
+            messagebox.showerror("Import failed", result.stderr or "See log for details.")
 
     def _append_log(self, text: str) -> None:
         self.log_text.configure(state="normal")
