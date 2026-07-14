@@ -44,6 +44,49 @@ Rendered via `visualize_PPO_model.py` from each scenario's actual saved `CnnPoli
 
 ![PPO actor architecture — deadly_corridor.wad](ppo_actor_render_deadly_corridor.png)
 
+### CNN diagnostics — what is the policy actually looking at?
+
+`visualize_PPO_model.py` draws the network's *shape*; `visualize_cnn_diagnostics.py` shows what it's *doing* — a Zeiler & Fergus (2014), ["Visualizing and Understanding Convolutional Networks"](https://cs.nyu.edu/~fergus/papers/zeilerECCV2014.pdf), style diagnostic toolkit adapted for this project's `NatureCNN` (three strided convs, no max-pooling — so the paper's "unpool" step doesn't apply here, there's nothing to invert) and for a PPO actor-critic (the paper's "class probability" becomes **action probability** and, separately, the critic's **value estimate**).
+
+```powershell
+# Zero dependencies beyond torch/matplotlib: fresh untrained network + a
+# random frame, just to sanity-check shapes.
+python visualize_cnn_diagnostics.py
+
+# The real thing: a trained model, a live frame played out of the actual env.
+python visualize_cnn_diagnostics.py --model models/latest/ppo_basic.zip --env basic
+
+# Pick a technique, a conv layer (0/1/2), and scan many frames for a
+# channel's top-k strongest activations (the paper's signature figure):
+python visualize_cnn_diagnostics.py --model models/latest/ppo_basic.zip --env basic \
+    --technique deconv --layer 1 --n-live-frames 40 --topk 9
+```
+
+| Technique | Paper section | What it shows | CLI flag |
+|---|---|---|---|
+| Deconvnet reconstruction | Sec 2.1, Sec 3 (Fig 2, Fig 4) | Picks one strong activation in one conv layer's feature map, zeros everything else there, and runs the conv stack in reverse (rectify → transposed-filter, per layer, no unpooling) back down to input-pixel space — the specific pattern that drove that unit. `--topk`/`--n-live-frames` scans many frames for a channel's strongest hits, the paper's top-9 grid. | `--technique deconv` |
+| Occlusion sensitivity | Sec 4.2 (Fig 6) | Slides a gray patch over the frame and re-runs the whole grid in one batched pass, plotting the *drop* in each action's probability and in the value estimate at every position — red means "the model needed this region," blue means occluding it actually helped that output. | `--technique occlusion` |
+| Saliency / guided backprop | Sec 3 (as a cheaper proxy) | Gradient of a chosen output (an action's probability, or the value estimate) w.r.t. input pixels. Guided backprop additionally zeros negative gradients at every ReLU on the way back (Springenberg et al. 2015), which is why its maps below are visibly sharper/less noisy than plain saliency. | `--technique saliency` / `--technique guided` |
+
+All four, run against the real `ppo_basic.zip` model on a live frame from `envs/basic_env.py` — every technique independently converges on the same region (the monster), which is the correct thing for `basic.wad`'s "kill the one monster" objective:
+
+**Occlusion sensitivity** (red = the model relies on this region for that output; note the value heatmap lighting up almost exactly on the monster):
+
+![Occlusion sensitivity — basic.wad](cnn_diagnostics_occlusion_basic.png)
+
+**Deconvnet reconstruction** (layer 2, the channel with the strongest activation for this frame — auto-picked, since a fixed channel index is frequently dead/all-zero for a given input and that's a legitimate but uninteresting result):
+
+![Deconvnet reconstruction — basic.wad](cnn_diagnostics_deconv_basic.png)
+
+**Saliency** vs. **guided backprop** (same frame, same target action — guided backprop's mask is visibly tighter):
+
+![Saliency — basic.wad](cnn_diagnostics_saliency_basic.png)
+![Guided backprop — basic.wad](cnn_diagnostics_guided_basic.png)
+
+Frame sources: `--frame path.npy` / `--frames path.npy` (single frame or a batch, `(n_stack, 84, 84)` or channel-last, values 0-255) for offline analysis, or `--env {basic,deadly_corridor}` to play the real scenario live and grab frames through the project's own `VecFrameStack` pipeline (so stacking order always matches training — nothing here reimplements it by hand). Outputs land in `--out-dir` (default `cnn_diagnostics_out/`, gitignored) as PNGs, alongside printed pixel-statistics for each heatmap/reconstruction so a degenerate (all-zero or uniform) result is obvious from the console output alone, not just the image.
+
+**Verified in this project's `.venv`** against `models/latest/ppo_basic.zip` (`stable_baselines3` 2.9.0): `ActorCriticCnnPolicy` has `share_features_extractor=True` and `net_arch=[]` (both SB3 defaults for `CnnPolicy`), so `pi_features_extractor is vf_features_extractor`, and `mlp_extractor.policy_net` / `.value_net` are both empty `nn.Sequential()`s — i.e. `action_net` and `value_net` read directly off the same 512-d `NatureCNN` output with no hidden MLP in between. `visualize_cnn_diagnostics.py`'s `DiagnosticPolicy` wraps those real layers directly rather than approximating them.
+
 ## Setup
 
 Requires a project-local virtual environment (do not use a global Python install for this).
@@ -187,6 +230,10 @@ training_utils.py                 OverwriteCheckpointCallback (single-file
                                    logs/training_history.jsonl)
 visualize_PPO_model.py            One-shot: renders a saved policy's
                                    architecture as a PNG via visualtorch
+visualize_cnn_diagnostics.py      Zeiler & Fergus style diagnostics: deconvnet
+                                   reconstruction, occlusion sensitivity,
+                                   saliency/guided backprop (see README's
+                                   "CNN diagnostics" section)
 setup_env.sh / setup_env.bat      Bootstrap .venv + pip install from scratch
 wads/                             Drop doom.wad / doom2.wad here to train on
                                    the real levels (see wads/README.md);
