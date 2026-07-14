@@ -23,12 +23,17 @@ This came up early in the project and was deliberately ruled out: ViZDoom needs 
     I want to build a prettier UI so that this can look better. Think a window application, that can visualize the run, or even give the network a test level to run/play in. 
     When I want the take the latest model to play a level. I want it to view the complete game(full res), something I can stream ideally. 
     
-## Two scenarios currently in play
+## The levels
 
-- **`basic.wad`** — one room, one monster. The simplest built-in scenario, used to prove the pipeline works end-to-end. It already performs well.
-- **`deadly_corridor.wad`** — harder: a corridor full of enemies, `doom_skill=5`, and a death penalty. Its built-in reward is sparse (mostly just "did you reach the end / did you die"), so this project adds **reward shaping**: extra bonus reward for landing hits, getting kills, exploring new areas, and picking up weapons. That's implemented as opt-in wrapper classes in `envs/common.py`, off by default, turned on for this scenario specifically.
+Every single-player ViZDoom training scenario is implemented, each with its own train/watch script and its own model:
 
-Both scenarios **auto-resume**: each training script checks for a single model file under `models/latest/` on startup and continues from it if present, otherwise starts fresh. Training periodically overwrites that same file (~every 10k steps) rather than keeping numbered checkpoints — so there's always exactly one "current" model per scenario.
+- **Trained and working:** `basic` (one room, one monster — proved the pipeline) and `deadly_corridor` (corridor full of enemies at max difficulty; its sparse built-in reward is augmented with **reward shaping** — bonus reward for hits, kills, exploring new ground, picking up weapons).
+- **Implemented, still to be trained:** `defend_the_center` / `defend_the_line` (stand your ground, turn and shoot), `health_gathering` (+ a harder `supreme` maze variant — grab medkits, survive an acid floor), `my_way_home` (find your way out of a maze), `predict_position` (lead a moving target with one rocket), `take_cover` (pure dodging), and the basic variants `simpler_basic`, `rocket_basic`, and `basic_audio` (the network gets *sound* as well as pixels).
+- **Actual DOOM levels:** `train_doom_level.py --map E1M1` (or any map up to `E4M9` / `MAP32`) trains on real game maps. Out of the box it uses Freedoom (free, bundled with vizdoom); if you own DOOM/DOOM II, drop `doom.wad`/`doom2.wad` into `wads/` and they're used automatically.
+
+Reward shaping is per-level: each scenario's env module turns on only the bonuses that match its objective (e.g. exploration bonus for the maze levels, health-change bonus for the medkit levels, nothing at all for `basic`). Every knob is editable in the UI or via CLI flags.
+
+Every scenario **auto-resumes**: each training script checks for a single model file under `models/latest/` on startup and continues from it if present, otherwise starts fresh. Training periodically overwrites that same file (~every 10k steps) rather than keeping numbered checkpoints — so there's always exactly one "current" model per scenario.
 
 ## What the network actually looks like
 
@@ -48,26 +53,34 @@ Easiest path — a small desktop UI:
 ```powershell
 .venv\Scripts\python.exe train_ui.py
 ```
-Pick a scenario, tweak reward-bonus values if you want, hit Start Training / Watch Agent. There's also a **Visualize Model** button — it draws a picture of the neural network itself (what layers it has, how big) using whichever scenario's saved model you currently have, and shows it right there in the window next to the log.
+Pick any of the 14 levels, tweak reward-bonus values if you want, hit Start Training / Watch Agent. Three more buttons:
+
+- **Visualize Model** — draws a picture of the neural network itself (what layers it has, how big) from that level's saved model, right there next to the log.
+- **Export Model** — saves the current model to a single file you can back up or share.
+- **Import Model** — loads such a file back in as that level's active model (the old one is backed up automatically, and it warns you if the file came from a different level).
 
 Or from the command line:
 ```powershell
 .venv\Scripts\Activate.ps1
-python train_basic.py               # or train_deadly_corridor.py — not both at once
+python train_basic.py               # one train_*.py per level — never two at once
+python train_doom_level.py --map E1M1   # a real DOOM level
 python watch_agent.py               # separate terminal, see it actually play, live
 tensorboard --logdir logs/tensorboard   # reward/loss curves over time
+python export_model.py basic        # / import_model.py <file> --scenario basic
 ```
 
 ## Where things live
 
-- `envs/` — the Gymnasium environment setup (screen preprocessing, reward shaping wrappers)
-- `train_basic.py` / `train_deadly_corridor.py` — the actual PPO training entry points
+- `envs/` — the Gymnasium environment setup: one `*_env.py` per level holding its reward-shaping defaults, plus shared preprocessing/wrappers in `common.py`
+- `train_*.py` — one short PPO training entry point per level (the shared machinery lives in `train_common.py`)
 - `watch_agent*.py` — loads the current model and shows it playing live
 - `train_ui.py` — the GUI wrapper around all of the above
+- `model_io.py` + `export_model.py` / `import_model.py` — save a trained model to one file / load one back in (what the UI's Export/Import buttons run)
 - `visualize_PPO_model.py` — draws a picture of the network's architecture (layers/shapes), not part of training itself
-- `models/latest/` — the one live model file per scenario
+- `models/latest/` — the one live model file per level; `models/backups/` — what Import replaced; `exports/` — default Export destination
+- `wads/` — where to put `doom.wad` / `doom2.wad` if you own them (Freedoom is the built-in fallback)
 - `CLAUDE.md` — much deeper technical writeup (gotchas already solved, performance tuning already applied, exact file responsibilities) if you want to go further
 
 ## What's next on the roadmap
 
-Once `deadly_corridor`'s shaped-reward run shows a clean upward trend, the plan is to move on to `defend_the_center.wad` (a "stand your ground" scenario) using the same pipeline.
+Everything is implemented; most of it hasn't *trained* yet. The plan: run each new scenario end-to-end (roughly easiest-first: `defend_the_line` → `health_gathering` → its `supreme` variant → `my_way_home` → `take_cover` → `predict_position` → the basic variants) and confirm the reward curve trends upward, tuning each level's reward-shaping defaults as results come in. Then the big one: full DOOM levels (`E1M1` onward), which is also where the deferred LLM-as-strategic-planner idea would slot in if revisited.
