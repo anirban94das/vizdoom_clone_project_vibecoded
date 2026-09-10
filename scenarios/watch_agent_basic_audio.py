@@ -5,6 +5,8 @@ match train_basic_audio.py's dict observation (no frame stacking — the audio
 buffer carries the temporal signal; see envs/basic_audio_env.py).
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import run_watch
 from envs.basic_audio_env import make_basic_audio_env
 

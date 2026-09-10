@@ -27,42 +27,43 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 # Level -> the command (script + any extra args) to launch training. Values
 # are argument lists (not bare script names) because the full-level entries
-# share one script parameterized by --map.
+# share one script parameterized by --map. The scripts live in scenarios/ and
+# are launched from the repo root (cwd=PROJECT_ROOT below).
 LEVELS = {
-    "Basic": ["train_basic.py"],
-    "Simpler Basic": ["train_simpler_basic.py"],
-    "Rocket Basic": ["train_rocket_basic.py"],
-    "Basic Audio (screen+sound)": ["train_basic_audio.py"],
-    "Deadly Corridor (shaped)": ["train_deadly_corridor.py"],
-    "Defend the Center": ["train_defend_the_center.py"],
-    "Defend the Line": ["train_defend_the_line.py"],
-    "Health Gathering": ["train_health_gathering.py"],
-    "Health Gathering Supreme": ["train_health_gathering_supreme.py"],
-    "My Way Home": ["train_my_way_home.py"],
-    "Predict Position": ["train_predict_position.py"],
-    "Take Cover": ["train_take_cover.py"],
-    "Doom E1M1 (full level)": ["train_doom_level.py", "--map", "E1M1"],
-    "Doom II MAP01 (full level)": ["train_doom_level.py", "--map", "MAP01"],
+    "Basic": ["scenarios/train_basic.py"],
+    "Simpler Basic": ["scenarios/train_simpler_basic.py"],
+    "Rocket Basic": ["scenarios/train_rocket_basic.py"],
+    "Basic Audio (screen+sound)": ["scenarios/train_basic_audio.py"],
+    "Deadly Corridor (shaped)": ["scenarios/train_deadly_corridor.py"],
+    "Defend the Center": ["scenarios/train_defend_the_center.py"],
+    "Defend the Line": ["scenarios/train_defend_the_line.py"],
+    "Health Gathering": ["scenarios/train_health_gathering.py"],
+    "Health Gathering Supreme": ["scenarios/train_health_gathering_supreme.py"],
+    "My Way Home": ["scenarios/train_my_way_home.py"],
+    "Predict Position": ["scenarios/train_predict_position.py"],
+    "Take Cover": ["scenarios/train_take_cover.py"],
+    "Doom E1M1 (full level)": ["scenarios/train_doom_level.py", "--map", "E1M1"],
+    "Doom II MAP01 (full level)": ["scenarios/train_doom_level.py", "--map", "MAP01"],
 }
 
 # watch_agent_*.py opens its own visible ViZDoom window (render_mode="human")
 # and reloads that scenario's models/latest/*.zip before every episode, so it
 # can run alongside training to show behavior updating live.
 WATCH_SCRIPTS = {
-    "Basic": ["watch_agent.py"],
-    "Simpler Basic": ["watch_agent_simpler_basic.py"],
-    "Rocket Basic": ["watch_agent_rocket_basic.py"],
-    "Basic Audio (screen+sound)": ["watch_agent_basic_audio.py"],
-    "Deadly Corridor (shaped)": ["watch_agent_deadly_corridor.py"],
-    "Defend the Center": ["watch_agent_defend_the_center.py"],
-    "Defend the Line": ["watch_agent_defend_the_line.py"],
-    "Health Gathering": ["watch_agent_health_gathering.py"],
-    "Health Gathering Supreme": ["watch_agent_health_gathering_supreme.py"],
-    "My Way Home": ["watch_agent_my_way_home.py"],
-    "Predict Position": ["watch_agent_predict_position.py"],
-    "Take Cover": ["watch_agent_take_cover.py"],
-    "Doom E1M1 (full level)": ["watch_agent_doom_level.py", "--map", "E1M1"],
-    "Doom II MAP01 (full level)": ["watch_agent_doom_level.py", "--map", "MAP01"],
+    "Basic": ["scenarios/watch_agent.py"],
+    "Simpler Basic": ["scenarios/watch_agent_simpler_basic.py"],
+    "Rocket Basic": ["scenarios/watch_agent_rocket_basic.py"],
+    "Basic Audio (screen+sound)": ["scenarios/watch_agent_basic_audio.py"],
+    "Deadly Corridor (shaped)": ["scenarios/watch_agent_deadly_corridor.py"],
+    "Defend the Center": ["scenarios/watch_agent_defend_the_center.py"],
+    "Defend the Line": ["scenarios/watch_agent_defend_the_line.py"],
+    "Health Gathering": ["scenarios/watch_agent_health_gathering.py"],
+    "Health Gathering Supreme": ["scenarios/watch_agent_health_gathering_supreme.py"],
+    "My Way Home": ["scenarios/watch_agent_my_way_home.py"],
+    "Predict Position": ["scenarios/watch_agent_predict_position.py"],
+    "Take Cover": ["scenarios/watch_agent_take_cover.py"],
+    "Doom E1M1 (full level)": ["scenarios/watch_agent_doom_level.py", "--map", "E1M1"],
+    "Doom II MAP01 (full level)": ["scenarios/watch_agent_doom_level.py", "--map", "MAP01"],
 }
 
 # Level -> the scenario key export_model.py / import_model.py take (see

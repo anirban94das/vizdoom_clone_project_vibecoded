@@ -62,18 +62,18 @@ Pick any of the 14 levels, tweak reward-bonus values if you want, hit Start Trai
 Or from the command line:
 ```powershell
 .venv\Scripts\Activate.ps1
-python train_basic.py               # one train_*.py per level — never two at once
-python train_doom_level.py --map E1M1   # a real DOOM level
-python watch_agent.py               # separate terminal, see it actually play, live
-tensorboard --logdir logs/tensorboard   # reward/loss curves over time
-python export_model.py basic        # / import_model.py <file> --scenario basic
+python scenarios/train_basic.py            # one scenarios/train_*.py per level — never two at once
+python scenarios/train_doom_level.py --map E1M1   # a real DOOM level
+python scenarios/watch_agent.py            # separate terminal, see it actually play, live
+tensorboard --logdir logs/tensorboard     # reward/loss curves over time
+python export_model.py basic              # / import_model.py <file> --scenario basic
 ```
 
 ## Where things live
 
 - `envs/` — the Gymnasium environment setup: one `*_env.py` per level holding its reward-shaping defaults, plus shared preprocessing/wrappers in `common.py`
-- `train_*.py` — one short PPO training entry point per level (the shared machinery lives in `train_common.py`)
-- `watch_agent*.py` — loads the current model and shows it playing live
+- `scenarios/` — one short PPO training entry point (`train_*.py`) and one live viewer (`watch_agent_*.py`) per level; run them from the repo root. The shared machinery lives in `train_common.py`
+- `scenarios/_bootstrap.py` — tiny helper each scenario script imports first so it can still find `train_common` / `envs` from the subfolder
 - `train_ui.py` — the GUI wrapper around all of the above
 - `model_io.py` + `export_model.py` / `import_model.py` — save a trained model to one file / load one back in (what the UI's Export/Import buttons run)
 - `visualize_PPO_model.py` — draws a picture of the network's architecture (layers/shapes), not part of training itself

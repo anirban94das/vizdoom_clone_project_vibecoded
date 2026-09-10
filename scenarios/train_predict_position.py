@@ -8,6 +8,8 @@ starting point, tune via flags). See train_common.run_training for the
 shared auto-resume/checkpoint/recap behavior.
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.predict_position_env import make_predict_position_env
 

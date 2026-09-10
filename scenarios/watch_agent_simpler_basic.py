@@ -4,6 +4,8 @@ Reloads models/latest/ppo_simpler_basic.zip before every episode (see
 train_common.run_watch).
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import run_watch
 from envs.simpler_basic_env import make_simpler_basic_env
 

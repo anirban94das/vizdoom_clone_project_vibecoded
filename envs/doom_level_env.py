@@ -60,23 +60,29 @@ def resolve_game(map_id: str) -> tuple[str, Path | None]:
     )
 
 
+# Knobs turned on by default for full levels: the deadly_corridor combat set
+# + exploration (big maps to navigate) + health/armor deltas (pickups matter
+# over a 10-minute episode). Every knob not named here defaults off in
+# make_vizdoom_env; a train_doom_level.py --flag overrides any of these.
+SHAPING_DEFAULTS = {
+    "kill_reward_bonus": 20.0,
+    "hit_reward_bonus": 5.0,
+    "exploration_bonus_per_cell": 1.0,
+    "weapon_pickup_bonus": 15.0,
+    "health_change_bonus": 1.0,
+    "armor_change_bonus": 0.5,
+}
+
+
 def make_doom_level_env(
     map_id: str = "E1M1",
     skill: int = 3,
     render_mode: str | None = None,
     frame_skip: int = 4,
-    kill_reward_bonus: float = 20.0,
-    exploration_bonus_per_cell: float = 1.0,
-    exploration_cell_size: float = 32.0,
-    weapon_pickup_bonus: float = 15.0,
-    hit_reward_bonus: float = 5.0,
-    damage_dealt_bonus: float = 0.0,
-    damage_taken_penalty: float = 0.0,
-    health_change_bonus: float = 1.0,
-    armor_change_bonus: float = 0.5,
     episode_timeout: int = 21000,
     map_exit_reward: float = 1000.0,
     death_penalty: float = 100.0,
+    **shaping_overrides: float,
 ) -> gym.Env:
     map_id = map_id.upper()
     game, wad = resolve_game(map_id)
@@ -102,14 +108,6 @@ def make_doom_level_env(
         env_id,
         render_mode=render_mode,
         frame_skip=frame_skip,
-        kill_reward_bonus=kill_reward_bonus,
-        exploration_bonus_per_cell=exploration_bonus_per_cell,
-        exploration_cell_size=exploration_cell_size,
-        weapon_pickup_bonus=weapon_pickup_bonus,
-        hit_reward_bonus=hit_reward_bonus,
-        damage_dealt_bonus=damage_dealt_bonus,
-        damage_taken_penalty=damage_taken_penalty,
-        health_change_bonus=health_change_bonus,
-        armor_change_bonus=armor_change_bonus,
+        **{**SHAPING_DEFAULTS, **shaping_overrides},
         **extra,
     )

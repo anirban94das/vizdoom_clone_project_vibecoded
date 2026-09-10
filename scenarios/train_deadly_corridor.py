@@ -20,6 +20,8 @@ See train_common.run_training for the shared auto-resume/checkpoint/recap
 behavior. Do not run alongside another train_*.py (8 physical cores).
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.deadly_corridor_env import make_deadly_corridor_env
 

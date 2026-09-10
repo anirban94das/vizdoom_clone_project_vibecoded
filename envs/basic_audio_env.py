@@ -58,34 +58,14 @@ class ScreenAudioPreprocess(gym.ObservationWrapper):
         return {"screen": screen[..., None], "audio": audio}
 
 
+# Knobs this scenario turns on by default; every knob not named here defaults
+# off in apply_stats_and_reward_shaping. A train_*.py --flag overrides them.
+SHAPING_DEFAULTS: dict[str, float] = {}
+
+
 def make_basic_audio_env(
-    render_mode: str | None = None,
-    frame_skip: int = 4,
-    kill_reward_bonus: float = 0.0,
-    exploration_bonus_per_cell: float = 0.0,
-    exploration_cell_size: float = 32.0,
-    weapon_pickup_bonus: float = 0.0,
-    hit_reward_bonus: float = 0.0,
-    damage_dealt_bonus: float = 0.0,
-    damage_taken_penalty: float = 0.0,
-    health_change_bonus: float = 0.0,
-    armor_change_bonus: float = 0.0,
+    render_mode: str | None = None, frame_skip: int = 4, **shaping_overrides: float
 ) -> gym.Env:
-    env = make_raw_vizdoom_env(
-        ENV_ID,
-        render_mode=render_mode,
-        frame_skip=frame_skip,
-    )
-    env = apply_stats_and_reward_shaping(
-        env,
-        kill_reward_bonus=kill_reward_bonus,
-        exploration_bonus_per_cell=exploration_bonus_per_cell,
-        exploration_cell_size=exploration_cell_size,
-        weapon_pickup_bonus=weapon_pickup_bonus,
-        hit_reward_bonus=hit_reward_bonus,
-        damage_dealt_bonus=damage_dealt_bonus,
-        damage_taken_penalty=damage_taken_penalty,
-        health_change_bonus=health_change_bonus,
-        armor_change_bonus=armor_change_bonus,
-    )
+    env = make_raw_vizdoom_env(ENV_ID, render_mode=render_mode, frame_skip=frame_skip)
+    env = apply_stats_and_reward_shaping(env, **{**SHAPING_DEFAULTS, **shaping_overrides})
     return ScreenAudioPreprocess(env)

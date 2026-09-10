@@ -8,6 +8,8 @@ shared auto-resume/checkpoint/recap behavior, and CLAUDE.md for the
 don't-run-two-training-scripts-at-once warning (8 physical cores).
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.defend_the_line_env import make_defend_the_line_env
 

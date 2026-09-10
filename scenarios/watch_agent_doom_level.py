@@ -7,6 +7,8 @@ train_common.run_watch).
 
 import argparse
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import run_watch
 from envs.doom_level_env import make_doom_level_env
 

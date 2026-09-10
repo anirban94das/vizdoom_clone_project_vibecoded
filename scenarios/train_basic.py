@@ -10,6 +10,8 @@ Do not run alongside another train_*.py — each spawns N_ENVS SubprocVecEnv
 workers, and this machine has 8 physical cores.
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.basic_env import make_basic_env
 

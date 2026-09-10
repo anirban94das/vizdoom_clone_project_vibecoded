@@ -13,6 +13,8 @@ starting point; expect to lean on auto-resume repeatedly, and treat the
 exploration/exit-reward defaults as the first thing to tune.
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.doom_level_env import make_doom_level_env
 

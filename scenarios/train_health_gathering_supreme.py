@@ -9,6 +9,8 @@ health_gathering first for that transfer to kick in; otherwise this starts
 from a fresh CnnPolicy.
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.health_gathering_supreme_env import make_health_gathering_supreme_env
 

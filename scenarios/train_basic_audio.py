@@ -16,6 +16,8 @@ CAVEAT: needs a working OpenAL audio device — DoomGame.init() raises
 otherwise. Untested on this machine; see envs/basic_audio_env.py.
 """
 
+import _bootstrap  # noqa: F401  -- prepends the repo root to sys.path
+
 from train_common import build_parser, reward_kwargs_from_args, run_training
 from envs.basic_audio_env import make_basic_audio_env
 

@@ -2,8 +2,8 @@
 
 A gentler variant of basic.wad (same MOVE_LEFT/MOVE_RIGHT/ATTACK buttons,
 living_reward=-1, 300-tic timeout) — useful as a smoke-test scenario since
-anything that trains on basic should breeze through this. Shaping defaults
-all off, same as basic.
+anything that trains on basic should breeze through this. No shaping bonus on
+by default, same as basic.
 
 Like rocket_basic, this cfg is NOT registered by
 vizdoom.gymnasium_wrapper's __init__, so this module registers
@@ -26,31 +26,17 @@ if ENV_ID not in gym.registry:
         kwargs={"scenario_config_file": "simpler_basic.cfg", "max_buttons_pressed": 1},
     )
 
+# Knobs this scenario turns on by default; every knob not named here defaults
+# off in make_vizdoom_env. A train_*.py --flag overrides any of these.
+SHAPING_DEFAULTS: dict[str, float] = {}
+
 
 def make_simpler_basic_env(
-    render_mode: str | None = None,
-    frame_skip: int = 4,
-    kill_reward_bonus: float = 0.0,
-    exploration_bonus_per_cell: float = 0.0,
-    exploration_cell_size: float = 32.0,
-    weapon_pickup_bonus: float = 0.0,
-    hit_reward_bonus: float = 0.0,
-    damage_dealt_bonus: float = 0.0,
-    damage_taken_penalty: float = 0.0,
-    health_change_bonus: float = 0.0,
-    armor_change_bonus: float = 0.0,
+    render_mode: str | None = None, frame_skip: int = 4, **shaping_overrides: float
 ) -> gym.Env:
     return make_vizdoom_env(
         ENV_ID,
         render_mode=render_mode,
         frame_skip=frame_skip,
-        kill_reward_bonus=kill_reward_bonus,
-        exploration_bonus_per_cell=exploration_bonus_per_cell,
-        exploration_cell_size=exploration_cell_size,
-        weapon_pickup_bonus=weapon_pickup_bonus,
-        hit_reward_bonus=hit_reward_bonus,
-        damage_dealt_bonus=damage_dealt_bonus,
-        damage_taken_penalty=damage_taken_penalty,
-        health_change_bonus=health_change_bonus,
-        armor_change_bonus=armor_change_bonus,
+        **{**SHAPING_DEFAULTS, **shaping_overrides},
     )

@@ -12,7 +12,7 @@ All 12 single-player scenarios and full-game levels are **implemented**; trainin
 
 - **Trained and performing well:** `basic` (single room, one monster), `deadly_corridor` (baseline run climbed `ep_rew_mean` from -88 to +151 over 950k steps; the reward-shaped version warm-started from it is the current default).
 - **Implemented, training in progress / not yet run:** `defend_the_center`, `defend_the_line`, `health_gathering`, `health_gathering_supreme`, `my_way_home`, `predict_position`, `take_cover`, plus the basic variants `simpler_basic`, `rocket_basic`, and `basic_audio` (screen+sound observation — needs a working OpenAL device, untested).
-- **Full DOOM / DOOM II levels:** any map (`E1M1`..`E4M9`, `MAP01`..`MAP32`) at any skill via `train_doom_level.py --map`. Works out of the box with the Freedoom WADs bundled with `vizdoom`; auto-detects a real `doom.wad`/`doom2.wad` dropped into `wads/` (see `wads/README.md`) if you own the games.
+- **Full DOOM / DOOM II levels:** any map (`E1M1`..`E4M9`, `MAP01`..`MAP32`) at any skill via `scenarios/train_doom_level.py --map`. Works out of the box with the Freedoom WADs bundled with `vizdoom`; auto-detects a real `doom.wad`/`doom2.wad` dropped into `wads/` (see `wads/README.md`) if you own the games.
 
 ### Reward shaping
 
@@ -143,21 +143,21 @@ The same line is appended as JSON to `logs/training_history.jsonl`, so past runs
 
 ### Command line
 
-Train — one script per scenario, all auto-resuming from `models/latest/` (see below), never more than one at a time:
+Train — one script per scenario in `scenarios/`, run from the repo root, all auto-resuming from `models/latest/` (see below), never more than one at a time:
 
 ```powershell
 .venv\Scripts\Activate.ps1
-python train_basic.py                      # also: train_simpler_basic / train_rocket_basic / train_basic_audio
-python train_deadly_corridor.py
-python train_defend_the_center.py          # also: train_defend_the_line
-python train_health_gathering.py           # also: train_health_gathering_supreme (warm-starts from this one)
-python train_my_way_home.py
-python train_predict_position.py
-python train_take_cover.py
+python scenarios/train_basic.py                      # also: train_simpler_basic / train_rocket_basic / train_basic_audio
+python scenarios/train_deadly_corridor.py
+python scenarios/train_defend_the_center.py          # also: train_defend_the_line
+python scenarios/train_health_gathering.py           # also: train_health_gathering_supreme (warm-starts from this one)
+python scenarios/train_my_way_home.py
+python scenarios/train_predict_position.py
+python scenarios/train_take_cover.py
 
 # Full game levels — one model per map:
-python train_doom_level.py --map E1M1 --skill 3
-python train_doom_level.py --map MAP01
+python scenarios/train_doom_level.py --map E1M1 --skill 3
+python scenarios/train_doom_level.py --map MAP01
 ```
 
 Watch training metrics live:
@@ -167,12 +167,12 @@ tensorboard --logdir logs/tensorboard
 # open http://localhost:6006
 ```
 
-Watch the agent actually play, live, in a second terminal (reloads the latest saved model between episodes, so behavior updates as training progresses) — one `watch_agent_*.py` per scenario, mirroring the train script names:
+Watch the agent actually play, live, in a second terminal (reloads the latest saved model between episodes, so behavior updates as training progresses) — one `scenarios/watch_agent_*.py` per scenario, mirroring the train script names:
 
 ```powershell
-python watch_agent.py                          # basic.wad
-python watch_agent_deadly_corridor.py          # (etc.)
-python watch_agent_doom_level.py --map E1M1    # full levels take --map/--skill
+python scenarios/watch_agent.py                          # basic.wad
+python scenarios/watch_agent_deadly_corridor.py          # (etc.)
+python scenarios/watch_agent_doom_level.py --map E1M1    # full levels take --map/--skill
 ```
 
 Export / import a trained model (what the UI buttons run):
@@ -185,9 +185,9 @@ python export_model.py doom_E1M1               # full levels use doom_<MAP> keys
 
 ### Auto-resume
 
-Each `train_*.py` checks for that scenario's single fixed model file under `models/latest/` on startup and resumes from it with `PPO.load` if present, otherwise starts fresh (or from a configured warm-start — see below). There are no step-numbered checkpoints to manage — `training_utils.OverwriteCheckpointCallback` saves to that same fixed path roughly every 10k timesteps, overwriting it in place, so exactly one file per scenario exists at any time and it's always current. To force a from-scratch run, delete that scenario's file under `models/latest/` first. An imported model replaces that same file, so training and watching pick it up automatically.
+Each `scenarios/train_*.py` checks for that scenario's single fixed model file under `models/latest/` on startup and resumes from it with `PPO.load` if present, otherwise starts fresh (or from a configured warm-start — see below). There are no step-numbered checkpoints to manage — `training_utils.OverwriteCheckpointCallback` saves to that same fixed path roughly every 10k timesteps, overwriting it in place, so exactly one file per scenario exists at any time and it's always current. To force a from-scratch run, delete that scenario's file under `models/latest/` first. An imported model replaces that same file, so training and watching pick it up automatically.
 
-Warm starts (used only when no checkpoint exists yet): `train_deadly_corridor.py` starts from `models/ppo_deadly_corridor.zip` (its pre-shaping baseline run — it trains under the `ppo_deadly_corridor_shaped` identity since the reward function changed); `train_health_gathering_supreme.py` starts from `models/latest/ppo_health_gathering.zip` (same task, harder maze). Both carry weights over but reset the timestep/TensorBoard counter — expect a jump/dip in the reward curve at the handoff.
+Warm starts (used only when no checkpoint exists yet): `scenarios/train_deadly_corridor.py` starts from `models/ppo_deadly_corridor.zip` (its pre-shaping baseline run — it trains under the `ppo_deadly_corridor_shaped` identity since the reward function changed); `scenarios/train_health_gathering_supreme.py` starts from `models/latest/ppo_health_gathering.zip` (same task, harder maze). Both carry weights over but reset the timestep/TensorBoard counter — expect a jump/dip in the reward curve at the handoff.
 
 ## Project structure
 
@@ -211,14 +211,18 @@ envs/doom_level_env.py            Full DOOM/DOOM II levels: picks the env id
 train_common.py                   Shared runner: reward-flag parser, vec-env +
                                    callbacks + auto-resume/warm-start/fresh
                                    logic (run_training), watch loop (run_watch)
-train_<scenario>.py               ~30-line declarative entry points (constants
+scenarios/                        Per-scenario entry points (run from the repo
+                                   root: python scenarios/train_basic.py)
+scenarios/_bootstrap.py           sys.path shim so the moved scripts still
+                                   import train_common / envs.* (import first)
+scenarios/train_<scenario>.py     ~30-line declarative entry points (constants
                                    + run_training call), one per scenario
-train_doom_level.py               Same, parameterized by --map/--skill; one
+scenarios/train_doom_level.py     Same, parameterized by --map/--skill; one
                                    model per map (ppo_doom_<MAP>.zip)
-watch_agent*.py                   Reloads that scenario's models/latest/ file
+scenarios/watch_agent*.py         Reloads that scenario's models/latest/ file
                                    before each episode, renders live gameplay
-train_ui.py                       Tkinter launcher — all 14 levels, reward
-                                   knobs, train/watch/visualize/export/import
+train_ui.py                       Tkinter launcher (repo root) — all 14 levels,
+                                   reward knobs, train/watch/visualize/exp/imp
 model_io.py                       Export/import logic: metadata embedded in
                                    the SB3 zip, scenario-tag validation,
                                    automatic backups to models/backups/
@@ -259,7 +263,7 @@ configs/                          Auto-generated per-process ZDoom ini files
 - `frame_skip=4` — the policy acts once every 4 engine ticks rather than every tick, matching standard Atari/ViZDoom RL practice.
 - Native render resolution is forced down to `RES_160X120` since the pipeline resizes to 84x84 anyway — no reason to make the software rasterizer draw 4x more pixels per step across every parallel worker.
 - Frame-stacking happens at the vec-env level (`VecFrameStack` wrapping the already-parallel `SubprocVecEnv`), not per-env. Each worker ships one new `(84,84,1)` frame across its process pipe per step instead of a full `(84,84,4)` stack — a 4x cut in inter-process payload. (`basic_audio` skips stacking entirely; its audio buffer already spans the frame_skip window.)
-- Training envs render headless (`render_mode=None`) for speed; use `watch_agent*.py` (or the UI's Watch Agent button) separately to see gameplay without slowing training down — it's a single-process `DummyVecEnv`, so it can run alongside a training run.
+- Training envs render headless (`render_mode=None`) for speed; use `scenarios/watch_agent*.py` (or the UI's Watch Agent button) separately to see gameplay without slowing training down — it's a single-process `DummyVecEnv`, so it can run alongside a training run.
 
 ## Known gotchas (already handled, documented so they don't get "fixed" twice)
 
