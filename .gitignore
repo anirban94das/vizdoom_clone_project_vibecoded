@@ -3,7 +3,7 @@
 /models/latest
 /models/*.zip
 /configs
-/cnn_diagnostics_out
+/viz_renders
 __pycache__/
 _vizdoom.ini
 output.log

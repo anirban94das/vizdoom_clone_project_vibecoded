@@ -1,16 +1,24 @@
 """Small desktop UI to launch training and live-watching for a chosen ViZDoom scenario.
 
-Wraps the train_*.py / watch_agent_*.py entry points (all 14 levels, incl.
-the full Doom E1M1 / Doom II MAP01 levels via train_doom_level.py --map) and
-export_model.py / import_model.py as subprocesses (they're unmodified — this
-is just a launcher). Runs the project's own .venv interpreter so it doesn't
-matter which Python started this UI. Only one training run is allowed at a
-time from this window, since the train scripts warn against running two
-simultaneously (each spawns N_ENVS SubprocVecEnv worker processes and this
-machine has 8 physical cores). Watching runs as its own independent
-subprocess (single-process DummyVecEnv, not SubprocVecEnv) and opens its own
-foreground ViZDoom window, so it can run alongside training without that
-concern.
+Wraps the scenarios/train_*.py / scenarios/watch_agent_*.py entry points (all
+14 levels, incl. the full Doom E1M1 / Doom II MAP01 levels via
+train_doom_level.py --map) and export_model.py / import_model.py as
+subprocesses (they're unmodified — this is just a launcher). Runs the
+project's own .venv interpreter so it doesn't matter which Python started
+this UI. Only one training run is allowed at a time from this window, since
+the train scripts warn against running two simultaneously (each spawns
+N_ENVS SubprocVecEnv worker processes and this machine has 8 physical
+cores). Watching runs as its own independent subprocess (single-process
+DummyVecEnv, not SubprocVecEnv) and opens its own foreground ViZDoom window,
+so it can run alongside training without that concern.
+
+"Visualize Model" is the one feature NOT run as a subprocess: it loads the
+selected level's saved policy and renders its actual CNN architecture with
+visualtorch in a background thread (see _render_cnn). This used to shell out
+to a standalone visualize_PPO_model.py script; that script (along with the
+more general Zeiler & Fergus CNN-diagnostics tooling) now lives in the
+separate visualize_NNs_VC_ project, so this UI keeps only the minimal
+"what does the CNN that plays DOOM look like" capability, inlined.
 
 Run with: .venv\\Scripts\\python.exe train_ui.py
 """
@@ -85,8 +93,8 @@ SCENARIO_KEYS = {
     "Doom II MAP01 (full level)": "doom_MAP01",
 }
 
-# Mirrors each train_*.py's MODEL_PATH constant - the file visualize_PPO_model.py
-# is pointed at for the currently selected level. Kept in sync with
+# Mirrors each train_*.py's MODEL_PATH constant - the file "Visualize Model"
+# loads and renders for the currently selected level. Kept in sync with
 # model_io.SCENARIO_MODELS via the scenario key.
 MODEL_PATHS = {
     "Basic": "models/latest/ppo_basic.zip",
@@ -106,7 +114,9 @@ MODEL_PATHS = {
 }
 
 # One render output per level so switching levels doesn't clobber the other's
-# image, named after the scenario key.
+# image, named after the scenario key. Written under viz_renders/ (gitignored,
+# ephemeral — regenerated on click) rather than the repo root.
+VIZ_RENDERS_DIR = PROJECT_ROOT / "viz_renders"
 VIZ_OUTPUT_NAMES = {
     level: f"ppo_actor_render_{key}.png" for level, key in SCENARIO_KEYS.items()
 }
@@ -262,10 +272,10 @@ class TrainingLauncher(tk.Tk):
         self.python_exe = resolve_python()
         self.process: subprocess.Popen | None = None
         self.watch_process: subprocess.Popen | None = None
-        self.visualize_process: subprocess.Popen | None = None
+        self.visualize_busy = False  # True while _render_cnn's background thread runs
         self.output_queue: queue.Queue[str] = queue.Queue()
         self.viz_image: tk.PhotoImage | None = None  # kept alive; Tk drops GC'd images
-        self._last_viz_result: tuple[int, Path] | None = None
+        self._last_viz_result: tuple[str | None, Path] | None = None  # (error, out_path)
 
         self._build_widgets()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -504,65 +514,111 @@ class TrainingLauncher(tk.Tk):
         self._append_log("\n[stop watching requested]\n")
 
     def _start_visualize(self) -> None:
-        """Render the selected level's saved model architecture via
-        visualize_PPO_model.py and display the resulting PNG inline (right
-        panel), without disturbing whatever's in the log from a running
-        train/watch subprocess."""
-        if self.visualize_process is not None:
+        """Render the selected level's saved model architecture — the actual
+        trained CnnPolicy actor branch, via visualtorch — and display the PNG
+        inline (right panel), without disturbing whatever's in the log from a
+        running train/watch subprocess. Runs in a background thread
+        (_render_cnn); the heavy torch/stable-baselines3/visualtorch imports
+        are lazy, so they're only paid the first time this button is clicked."""
+        if self.visualize_busy:
             return
 
         level = self.level_var.get()
-        model_path = MODEL_PATHS[level]
-        if not (PROJECT_ROOT / model_path).exists():
+        model_path = PROJECT_ROOT / MODEL_PATHS[level]
+        if not model_path.exists():
             messagebox.showerror(
-                "Model not found", f"{model_path} doesn't exist yet - train this level first."
+                "Model not found", f"{MODEL_PATHS[level]} doesn't exist yet - train this level first."
             )
             return
 
-        out_name = VIZ_OUTPUT_NAMES[level]
-        command = [self.python_exe, "visualize_PPO_model.py", "--model", model_path, "--out", out_name]
-        self._append_log(f"$ {' '.join(command)}\n")
+        VIZ_RENDERS_DIR.mkdir(exist_ok=True)
+        out_path = VIZ_RENDERS_DIR / VIZ_OUTPUT_NAMES[level]
+        self._append_log(f"[visualize] rendering {MODEL_PATHS[level]} -> {out_path.relative_to(PROJECT_ROOT)}\n")
 
-        self.visualize_process = subprocess.Popen(
-            command,
-            cwd=PROJECT_ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-        )
-        threading.Thread(
-            target=self._read_visualize_output, args=(PROJECT_ROOT / out_name,), daemon=True
-        ).start()
-
+        self.visualize_busy = True
         self.visualize_button.configure(state="disabled")
         self.viz_status_var.set(f"Rendering: {level}...")
+        threading.Thread(target=self._render_cnn, args=(model_path, out_path), daemon=True).start()
 
-    def _read_visualize_output(self, out_path: Path) -> None:
-        """Runs in a worker thread - visualize_PPO_model.py is a one-shot
-        script (unlike train/watch's loops), so this just waits for it to
-        exit once and reports the result back via the same queue/prefix
-        pattern as the other subprocesses."""
-        assert self.visualize_process is not None and self.visualize_process.stdout is not None
-        for line in self.visualize_process.stdout:
-            self.output_queue.put(f"[visualize] {line}")
-        returncode = self.visualize_process.wait()
-        self._last_viz_result = (returncode, out_path)
+    def _render_cnn(self, model_path: Path, out_path: Path) -> None:
+        """Worker-thread body: loads the trained PPO model and pulls out its
+        real actor branch (features_extractor -> mlp_extractor.policy_net ->
+        action_net — the CNN this project's agent actually uses to play
+        DOOM, not a diagram of the code), renders it with visualtorch, and
+        saves a PNG. Reports back via the same output_queue/__DONE__ pattern
+        the subprocess-based train/watch/export/import actions use."""
+        error: str | None = None
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            import torch
+            import visualtorch
+            from stable_baselines3 import PPO
+            from torch import nn
+
+            model = PPO.load(model_path, device="cpu")
+            policy = model.policy
+
+            class ActorBranch(nn.Module):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.features_extractor = policy.pi_features_extractor
+                    self.mlp_extractor_policy_net = policy.mlp_extractor.policy_net
+                    self.action_net = policy.action_net
+
+                def forward(self, x: torch.Tensor) -> torch.Tensor:
+                    x = self.features_extractor(x)
+                    x = self.mlp_extractor_policy_net(x)
+                    return self.action_net(x)
+
+            # SB3 wraps CnnPolicy envs with VecTransposeImage, so by the time
+            # the policy sees it, observation_space.shape is already
+            # channel-first (n_stack, H, W), not the raw env's (H, W, C).
+            n_stack, height, width = policy.observation_space.shape
+            input_shape = (1, n_stack, height, width)
+
+            actor = ActorBranch().eval()
+            img = visualtorch.render(actor, input_shape=input_shape, style="flow", legend=True)
+
+            # Figure size (inches) fixed to visualtorch's native render size
+            # at this base dpi; save-time dpi is scaled up from there so the
+            # output pixel dimensions grow by SCALE instead of cancelling out.
+            base_dpi, scale = 100, 3.0
+            plt.figure(figsize=(img.width / base_dpi, img.height / base_dpi), dpi=base_dpi)
+            plt.imshow(img)
+            plt.axis("off")
+            plt.tight_layout()
+            plt.savefig(out_path, dpi=base_dpi * scale, bbox_inches="tight")
+            plt.close()
+
+            x = torch.zeros(*input_shape)
+            with torch.no_grad():
+                out = actor(x)
+            total_params = sum(p.numel() for p in actor.parameters())
+            self.output_queue.put(
+                f"[visualize] input {tuple(x.shape)} -> output {tuple(out.shape)}, "
+                f"{total_params:,} params (this branch)\n"
+            )
+        except Exception as exc:  # surfaced to the UI log/status below, not swallowed
+            error = str(exc)
+
+        self._last_viz_result = (error, out_path)
         self.output_queue.put("__VISUALIZE_DONE__")
 
     def _on_visualize_done(self) -> None:
         assert self._last_viz_result is not None
-        returncode, out_path = self._last_viz_result
-        self.visualize_process = None
+        error, out_path = self._last_viz_result
+        self.visualize_busy = False
         self.visualize_button.configure(state="normal")
 
-        if returncode == 0 and out_path.exists():
+        if error is None and out_path.exists():
             self._load_render_image(out_path)
             self.viz_status_var.set(f"Rendered: {out_path.name}")
         else:
             self.viz_status_var.set("Render failed - see log")
-            self._append_log(f"\n[visualize] process exited with code {returncode}\n")
+            self._append_log(f"\n[visualize] failed: {error}\n")
 
     def _load_render_image(self, path: Path) -> None:
         """Loads the PNG via Tk's built-in PNG support (no Pillow dependency
@@ -673,11 +729,8 @@ class TrainingLauncher(tk.Tk):
                 ["taskkill", "/F", "/T", "/PID", str(self.watch_process.pid)],
                 capture_output=True,
             )
-        if self.visualize_process is not None:
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(self.visualize_process.pid)],
-                capture_output=True,
-            )
+        # No process to kill for _render_cnn — it's a daemon thread in this
+        # same process, not a subprocess, so it's dropped when we exit below.
         self.destroy()
 
 
