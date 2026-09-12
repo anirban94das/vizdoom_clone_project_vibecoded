@@ -1,6 +1,6 @@
 # wads/ — optional commercial game WADs
 
-Full-level training (`train_doom_level.py`, `envs/doom_level_env.py`) plays
+Full-level training (`scenarios/train_doom_level.py`, `envs/doom_level_env.py`) plays
 real DOOM maps. By default it uses the **Freedoom** WADs bundled with the
 installed `vizdoom` package — free, BSD-licensed replacements with the same
 map slots and monster/weapon behavior but different level layouts and art.

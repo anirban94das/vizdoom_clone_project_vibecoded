@@ -1,4 +1,4 @@
-"""Shared training helpers used by both train_basic.py and train_deadly_corridor.py."""
+"""Shared training helpers used by every scenarios/train_*.py, via train_common.run_training."""
 
 import json
 from datetime import datetime, timezone
