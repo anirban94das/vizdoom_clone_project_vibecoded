@@ -219,6 +219,24 @@ configs/                          Auto-generated per-process ZDoom ini files
 - **Some scenario cfgs declare `screen_format = GRAY8`** (`rocket_basic`, `simpler_basic`), which arrives single-channel and would crash the grayscale step. `envs/common.py` forces `RGB24` at `gym.make` time for every scenario (a no-op for the rest).
 - **The full-game cfgs enable ViZDoom's audio buffer**, which requires a working OpenAL device and fails at `DoomGame.init()` without one. `envs/doom_level_env.py` disables audio (and automap) buffers; only `basic_audio` keeps audio on, intentionally.
 
+## Future enhancements (ideas, not started)
+
+Candidate next steps once the remaining scenarios have trained, roughly in value-per-effort order. See `CLAUDE.md` → "Future enhancements" for the fuller reasoning behind each.
+
+| # | Idea | Why |
+|---|---|---|
+| 1 | **Unshaped eval callback** — periodically play a few deterministic episodes with all bonuses off and log the built-in score | `ep_rew_mean` measures shaped reward, so changing a knob moves it even when behavior doesn't; this gives a stable yardstick |
+| 2 | **Shaping ablation harness** — run one scenario N times with different knob sets, fixed seed, short budget; print a comparison table | Replaces hand-tuning nine knobs by trial and error |
+| 3 | **Atari-style PPO hyperparameters** — `n_steps≈128–256`, `batch_size=256`, `n_epochs=4`, `clip_range=0.1`, decaying LR | SB3 defaults are tuned for low-dim MuJoCo tasks; with 12 envs the rollout is 24k frames per update |
+| 4 | **Recurrent policy** (`sb3_contrib.RecurrentPPO`, `CnnLstmPolicy`) for `my_way_home`, `health_gathering_supreme`, full levels | Four stacked frames can't remember which corridor was already visited |
+| 5 | **Curriculum for full levels** — start skill 1 / short timeout / near the exit, raise difficulty as eval success climbs | A from-scratch agent never sees the +1000 exit reward on E1M1 otherwise |
+| 6 | **Game-variable HUD vector alongside pixels** (`HEALTH`, ammo, kills…) via `MultiInputPolicy` | Stops the CNN having to learn to read on-screen numbers; reuses `basic_audio`'s Dict-obs plumbing |
+| 7 | **Option B groundwork: log text state summaries + screenshots during training** | Lets LLM-planner prompts and latency be prototyped offline before anything touches the control loop |
+| 8 | **Behavior-cloning warm start from human play** (ViZDoom `SPECTATOR` mode → supervised pretrain → PPO) | Skips the random-wandering phase; bridges supervised learning and RL |
+| 9 | **Experiment hygiene** — eval-episode MP4s, `--seed` flag, leaderboard from `training_history.jsonl` | Keeps many experiments comparable |
+
+Suggested first move: 1 + 3 together, then re-run `defend_the_center` for a trustworthy baseline.
+
 ## Related workspace projects
 
 - [`ViZDoom`](../ViZDoom) — the game environment this project depends on.

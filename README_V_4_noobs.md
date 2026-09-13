@@ -76,3 +76,19 @@ python export_model.py basic              # / import_model.py <file> --scenario 
 ## What's next on the roadmap
 
 Everything is implemented; most of it hasn't *trained* yet. The plan: run each new scenario end-to-end (roughly easiest-first: `defend_the_line` → `health_gathering` → its `supreme` variant → `my_way_home` → `take_cover` → `predict_position` → the basic variants) and confirm the reward curve trends upward, tuning each level's reward-shaping defaults as results come in. Then the big one: full DOOM levels (`E1M1` onward), which is also where the deferred LLM-as-strategic-planner idea would slot in if revisited.
+
+## Future enhancements (ideas on the shelf)
+
+Things that could make the agent learn better or make experimenting easier, in plain terms. None of these are built yet.
+
+1. **A fair scorecard.** Right now the reward curve mixes the game's own score with the bonus points we add for hits, kills, exploring, etc. Change a bonus and the curve moves even if the agent plays exactly the same. The fix is to periodically play a few test episodes with all bonuses switched off and record just the game's own score — like a standardised exam next to the homework marks.
+2. **A "try the knobs" script.** Instead of guessing bonus values one run at a time, run the same level several times with different bonus settings and print a table comparing them on the fair scorecard above.
+3. **Better default settings for PPO.** The training library's defaults were designed for robot-simulation tasks, not pixel games. The well-known "Atari recipe" (collect fewer frames per update, learn in bigger batches, slowly lower the learning rate) is probably the biggest free improvement available.
+4. **A memory for the maze levels.** The network sees only the last 4 frames — about a tenth of a second. In `my_way_home` or `health_gathering_supreme` it needs to remember "I already checked that corridor." Adding a small memory unit (an LSTM) to the network fixes that.
+5. **Start easy, get harder (curriculum).** A brand-new agent will never reach the exit of a full DOOM level, so it never learns that reaching the exit is the goal. Start at the lowest skill with short episodes (maybe near the exit), and raise the difficulty as it starts succeeding.
+6. **Show the network the HUD numbers directly.** Health, ammo and kill count are already read off the game for reward shaping; feeding them into the network as numbers means it doesn't have to learn to read the on-screen digits from pixels.
+7. **Groundwork for the LLM planner idea.** Before putting an LLM anywhere near the controls, just log a short text description of the game state (health, ammo, enemies in view, how much has been explored) plus a screenshot every few seconds while training runs. That gives real data to test planner prompts against offline, with no risk to training.
+8. **Let a human show it the ropes first.** Record 10–15 minutes of a person playing a level (ViZDoom has a spectator mode for this), teach the network to imitate those moves, *then* hand over to PPO. Skips the long phase where the agent wanders into walls.
+9. **Housekeeping for experiments.** Short video clips of test episodes, a `--seed` option so runs are repeatable, and a simple results table built from `logs/training_history.jsonl`.
+
+Items 6, 7 and 8 are the ones flagged as most interesting to dig into next. Items 1 and 3 together are the sensible first step.
