@@ -162,6 +162,60 @@ KNOB_DESCRIPTIONS = {
     "positive for armor pickups, negative as armor absorbs damage.",
 }
 
+# What each level actually is (scenario, buttons, built-in reward) - one
+# summary per envs/*_env.py module docstring, so picking a level doesn't
+# require cross-referencing those files first. Shown in Settings -> Level
+# Descriptions.
+LEVEL_DESCRIPTIONS = {
+    "Basic": "One stationary monster on the far wall of a single room. "
+    "Buttons: MOVE_LEFT/MOVE_RIGHT/ATTACK. Built-in reward (~+101 kill, "
+    "-5 miss, -1/tic) is already sufficient - no shaping bonuses on by default.",
+    "Simpler Basic": "A gentler variant of Basic (same buttons, same reward) "
+    "used as a fast smoke test - anything that trains on Basic should "
+    "converge here easily.",
+    "Rocket Basic": "Same task as Basic, but with a slow rocket launcher "
+    "instead of a hitscan pistol and no auto-aim - the shot has to be aimed "
+    "where the monster will be, not where it is.",
+    "Basic Audio (screen+sound)": "Same task as Basic, but the observation "
+    "is a Dict of {screen, audio} for a MultiInputPolicy, exercising sound "
+    "as an input channel. Needs a working OpenAL device - untested on this machine.",
+    "Deadly Corridor (shaped)": "Fight down a corridor of Zombieman/"
+    "ShotgunGuy enemies to reach the far end. The scenario only scores "
+    "distance and death, so kill, hit, exploration, and weapon-pickup "
+    "bonuses are shaped in by default (ShotgunGuys drop a pickupable shotgun).",
+    "Defend the Center": "Player is fixed at the center of a room; enemies "
+    "close in from all sides. TURN_LEFT/TURN_RIGHT/ATTACK only, no movement. "
+    "Built-in +1/kill, -1 on death; kill and hit bonuses shape on top.",
+    "Defend the Line": "Same fixed-position defense as Defend the Center, "
+    "but enemies approach from a line in front rather than surrounding the "
+    "player, and there's no episode timeout - it ends only on death.",
+    "Health Gathering": "Pure survival: the floor is acid and drains health "
+    "continuously, medkits spawn around one open room. TURN/MOVE_FORWARD "
+    "only, no combat. health_change_bonus rewards medkit pickups explicitly.",
+    "Health Gathering Supreme": "Same objective as Health Gathering, but on "
+    "a maze layout - medkits must be actively found, not just steered "
+    "toward. Warm-starts from the plain Health Gathering model when available.",
+    "My Way Home": "Pure navigation: spawn in a random room of a small maze "
+    "and find a green vest. Built-in reward is a single +1 at the very end - "
+    "about as sparse as it gets - so exploration bonus rewards covering new ground.",
+    "Predict Position": "Aim-leading task: a monster walks across the far "
+    "wall, player has a rocket launcher and effectively one shot per episode "
+    "(slow projectile, no auto-aim). Kill/hit bonuses are set an order of "
+    "magnitude larger than the hitscan scenarios since success happens at "
+    "most once per episode.",
+    "Take Cover": "Pure dodging: monsters at the far wall lob fireballs, "
+    "player can only MOVE_LEFT/MOVE_RIGHT (no weapon, no turning). Reward is "
+    "survival time; damage_taken_penalty adds denser near-miss-vs-hit signal.",
+    "Doom E1M1 (full level)": "Full original DOOM level E1M1 (Knee-Deep in "
+    "the Dead), played via the bundled Freedoom WAD unless a real doom.wad "
+    "is present in wads/. 10-minute episode timeout, full combat + "
+    "exploration + item shaping on by default.",
+    "Doom II MAP01 (full level)": "Full DOOM II level MAP01, same setup as "
+    "E1M1 (Freedoom2 fallback, 10-min timeout, full shaping on) - different "
+    "map and monster set.",
+}
+
+
 def _shaping(**overrides: float) -> dict[str, float]:
     """Full nine-knob dict: everything off except the given overrides —
     mirrors train_common.build_parser's fallback behavior so each entry
@@ -277,9 +331,49 @@ class TrainingLauncher(tk.Tk):
         self.viz_image: tk.PhotoImage | None = None  # kept alive; Tk drops GC'd images
         self._last_viz_result: tuple[str | None, Path] | None = None  # (error, out_path)
 
+        self._build_menu()
         self._build_widgets()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(100, self._drain_output_queue)
+
+    def _build_menu(self) -> None:
+        menubar = tk.Menu(self)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(
+            label="Level Descriptions...", command=self._show_level_descriptions
+        )
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        self.config(menu=menubar)
+
+    def _show_level_descriptions(self) -> None:
+        """Settings -> Level Descriptions: a scrollable reference listing
+        what each of the 14 levels actually is (scenario, buttons, reward),
+        so a level can be picked without cross-referencing envs/*_env.py."""
+        win = tk.Toplevel(self)
+        win.title("Level Descriptions")
+        win.geometry("640x520")
+
+        canvas = tk.Canvas(win, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas, padding=12)
+
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.bind(
+            "<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units")
+        )
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        for level in LEVELS:
+            ttk.Label(inner, text=level, font=("TkDefaultFont", 10, "bold")).pack(
+                anchor="w", pady=(10, 0)
+            )
+            ttk.Label(
+                inner, text=LEVEL_DESCRIPTIONS[level], wraplength=590, justify="left"
+            ).pack(anchor="w", pady=(0, 2))
 
     def _build_widgets(self) -> None:
         top = ttk.Frame(self, padding=10)
