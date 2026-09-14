@@ -2,6 +2,7 @@
 /models/checkpoints
 /models/latest
 /models/*.zip
+/models/ablation
 /configs
 /viz_renders
 __pycache__/

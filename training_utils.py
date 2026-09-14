@@ -3,8 +3,10 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 
 
 class OverwriteCheckpointCallback(BaseCallback):
@@ -90,6 +92,7 @@ class EpisodeRecapCallback(BaseCallback):
             return sum(r[key] for r in rows) / len(rows)
 
         summary = {
+            "kind": "recap",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "scenario": self.scenario,
             "cumulative_timesteps": self.model.num_timesteps,
@@ -113,3 +116,138 @@ class EpisodeRecapCallback(BaseCallback):
         with open(self.history_path, "a") as f:
             f.write(json.dumps(summary) + "\n")
         print(f"[recap] appended to {self.history_path}")
+
+
+def evaluate_unshaped(
+    model,
+    make_env_fn: Callable,
+    env_kwargs: dict,
+    n_stack: int = 4,
+    n_episodes: int = 5,
+) -> dict[str, float]:
+    """Plays n_episodes deterministic episodes on a fresh single env built via
+    make_env_fn(**env_kwargs) and returns the mean reward plus mean
+    EpisodeStatsWrapper stats. Callers are expected to pass env_kwargs with
+    every reward-shaping bonus forced to 0.0 (see train_common.ZERO_SHAPING_KWARGS),
+    so the returned reward is the scenario's built-in score rather than the
+    shaped training signal - the number that stays comparable across runs
+    with different shaping, unlike ep_rew_mean.
+
+    Builds and tears down its own env per call rather than caching one, since
+    this only runs every eval_freq (tens of thousands of steps) - not worth
+    holding a live DoomGame instance open between calls for. Shared by
+    UnshapedEvalCallback (periodic, during a normal training run) and
+    ablation.py (one final, larger-n_episodes call per knob-set).
+    """
+    vec_env = DummyVecEnv([lambda: make_env_fn(**env_kwargs)])
+    if n_stack > 1:
+        vec_env = VecFrameStack(vec_env, n_stack=n_stack)
+
+    stat_keys = [k for k in EpisodeRecapCallback.STAT_KEYS if k != "reward"]
+    rewards: list[float] = []
+    stat_totals: dict[str, list[float]] = {k: [] for k in stat_keys}
+    try:
+        for _ in range(n_episodes):
+            obs = vec_env.reset()
+            done = False
+            ep_reward = 0.0
+            ep_stats: dict = {}
+            while not done:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, dones, infos = vec_env.step(action)
+                ep_reward += float(reward[0])
+                done = bool(dones[0])
+                if done:
+                    ep_stats = infos[0].get("episode_stats", {})
+            rewards.append(ep_reward)
+            for key in stat_keys:
+                stat_totals[key].append(float(ep_stats.get(key, 0.0)))
+    finally:
+        vec_env.close()
+
+    summary = {"mean_reward": sum(rewards) / len(rewards)}
+    for key, values in stat_totals.items():
+        summary[key] = sum(values) / len(values)
+    return summary
+
+
+class UnshapedEvalCallback(BaseCallback):
+    """Every eval_freq real timesteps, plays n_eval_episodes deterministic
+    episodes on a separate env with every reward-shaping knob forced to 0.0
+    (via evaluate_unshaped), and logs the built-in score to TensorBoard
+    (eval/*) plus one JSON line per evaluation to history_path.
+
+    Exists because ep_rew_mean and EpisodeRecapCallback both measure the
+    *shaped* reward (built-in + bonuses) - turning a knob moves that number
+    even when the agent's actual in-game performance hasn't changed. Holding
+    shaping at zero here makes eval/mean_reward_unshaped the number that only
+    moves when behavior does, which is what ablation.py's final comparison
+    also reads (via the same evaluate_unshaped helper).
+    """
+
+    def __init__(
+        self,
+        scenario: str,
+        make_env_fn: Callable,
+        unshaped_env_kwargs: dict,
+        history_path: Path,
+        eval_freq: int,
+        n_eval_episodes: int = 5,
+        n_stack: int = 4,
+        verbose: int = 0,
+    ) -> None:
+        super().__init__(verbose)
+        self.scenario = scenario
+        self.make_env_fn = make_env_fn
+        self.unshaped_env_kwargs = unshaped_env_kwargs
+        self.history_path = Path(history_path)
+        # eval_freq is expected pre-divided by n_envs (n_calls units), same
+        # convention as OverwriteCheckpointCallback.save_freq.
+        self.eval_freq = max(eval_freq, 1)
+        self.n_eval_episodes = n_eval_episodes
+        self.n_stack = n_stack
+
+    def _init_callback(self) -> None:
+        self.history_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.eval_freq == 0:
+            self._evaluate()
+        return True
+
+    def _evaluate(self) -> None:
+        result = evaluate_unshaped(
+            self.model,
+            self.make_env_fn,
+            self.unshaped_env_kwargs,
+            n_stack=self.n_stack,
+            n_episodes=self.n_eval_episodes,
+        )
+
+        self.logger.record("eval/mean_reward_unshaped", result["mean_reward"])
+        for key, value in result.items():
+            if key != "mean_reward":
+                self.logger.record(f"eval/{key}_unshaped", value)
+        self.logger.dump(self.num_timesteps)
+
+        print(
+            f"[eval] {self.scenario} @ {self.num_timesteps} timesteps: "
+            f"unshaped mean_reward={result['mean_reward']:.2f} "
+            f"over {self.n_eval_episodes} episodes"
+        )
+
+        summary = {
+            "kind": "unshaped_eval",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scenario": self.scenario,
+            "cumulative_timesteps": int(self.num_timesteps),
+            "n_eval_episodes": self.n_eval_episodes,
+        }
+        summary["mean_reward_unshaped"] = result["mean_reward"]
+        for key, value in result.items():
+            if key != "mean_reward":
+                summary[f"{key}_unshaped"] = value
+
+        self.history_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.history_path, "a") as f:
+            f.write(json.dumps(summary) + "\n")
