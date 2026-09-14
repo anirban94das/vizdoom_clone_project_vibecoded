@@ -75,6 +75,11 @@ class EpisodeRecapCallback(BaseCallback):
                         "weapons_picked_up": stats["weapons_picked_up"],
                     }
                 )
+                # record_mean (not record) so this accumulates like SB3's own
+                # rollout/ep_rew_mean and resets after each logger dump,
+                # instead of only showing the last episode's value.
+                self.logger.record_mean("rollout/ep_kills_mean", stats["kills"])
+                self.logger.record_mean("rollout/ep_hits_mean", stats["hits"])
         return True
 
     def _on_training_end(self) -> None:

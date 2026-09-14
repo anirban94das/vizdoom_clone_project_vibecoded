@@ -20,6 +20,14 @@ more general Zeiler & Fergus CNN-diagnostics tooling) now lives in the
 separate visualize_NNs_VC_ project, so this UI keeps only the minimal
 "what does the CNN that plays DOOM look like" capability, inlined.
 
+"Auto-Train..." runs a chosen set of levels back-to-back, one at a time,
+reusing the same single train-subprocess slot as "Start Training" (so the
+never-run-two-at-once rule still holds) - each level trains with its own
+script's default reward shaping (REWARD_DEFAULTS), not whatever's currently
+typed into the Reward shaping fields, and advances to the next level
+automatically when the previous one's subprocess exits. See
+_start_auto_train / _advance_auto_train.
+
 Run with: .venv\\Scripts\\python.exe train_ui.py
 """
 
@@ -327,6 +335,8 @@ class TrainingLauncher(tk.Tk):
         self.process: subprocess.Popen | None = None
         self.watch_process: subprocess.Popen | None = None
         self.visualize_busy = False  # True while _render_cnn's background thread runs
+        self.auto_train_queue: list[str] = []  # remaining levels, next up first
+        self.auto_train_active = False
         self.output_queue: queue.Queue[str] = queue.Queue()
         self.viz_image: tk.PhotoImage | None = None  # kept alive; Tk drops GC'd images
         self._last_viz_result: tuple[str | None, Path] | None = None  # (error, out_path)
@@ -395,6 +405,22 @@ class TrainingLauncher(tk.Tk):
         )
         self.stop_button.pack(side="left", padx=4)
 
+        self.auto_train_button = ttk.Button(
+            top, text="Auto-Train...", command=self._open_auto_train_dialog
+        )
+        self.auto_train_button.pack(side="left", padx=(16, 4))
+        Tooltip(
+            self.auto_train_button,
+            "Pick a set of levels and train them back-to-back, unattended - "
+            "each with its own script's default reward shaping, one at a "
+            "time (never two training subprocesses at once).",
+        )
+
+        self.stop_auto_train_button = ttk.Button(
+            top, text="Stop Auto-Train", command=self._stop_auto_train, state="disabled"
+        )
+        self.stop_auto_train_button.pack(side="left", padx=4)
+
         self.watch_button = ttk.Button(top, text="Watch Agent", command=self._start_watching)
         self.watch_button.pack(side="left", padx=(16, 4))
 
@@ -422,6 +448,9 @@ class TrainingLauncher(tk.Tk):
 
         self.watch_status_var = tk.StringVar(value="")
         ttk.Label(top, textvariable=self.watch_status_var).pack(side="right", padx=(0, 12))
+
+        self.auto_train_status_var = tk.StringVar(value="")
+        ttk.Label(top, textvariable=self.auto_train_status_var).pack(side="right", padx=(0, 12))
 
         rewards_frame = ttk.LabelFrame(self, text="Reward shaping", padding=10)
         rewards_frame.pack(fill="x", padx=10, pady=(0, 10))
@@ -546,6 +575,8 @@ class TrainingLauncher(tk.Tk):
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         self.status_var.set("Idle")
+        if self.auto_train_active:
+            self._advance_auto_train()
 
     def _stop_training(self) -> None:
         if self.process is None:
@@ -558,6 +589,103 @@ class TrainingLauncher(tk.Tk):
             capture_output=True,
         )
         self._append_log("\n[stop requested]\n")
+
+    def _open_auto_train_dialog(self) -> None:
+        """Auto-Train... : pick which levels to run back-to-back. Checkboxes
+        default to checked for levels with no saved model yet (i.e. never
+        completed a run) and unchecked for levels that already have one, so
+        the default selection is "everything still on the roadmap" - the
+        user can freely adjust before starting."""
+        if self.auto_train_active or self.process is not None:
+            messagebox.showerror(
+                "Busy", "Stop the current training run before starting Auto-Train."
+            )
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Auto-Train Queue")
+        win.geometry("380x540")
+
+        ttk.Label(
+            win,
+            text="Selected levels train in the order listed below, one at a "
+            "time, each to that script's own default reward shaping and "
+            "timestep budget. Stop Auto-Train aborts the whole queue; the "
+            "plain Stop button skips just the level in progress.",
+            wraplength=350,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(10, 6))
+
+        canvas = tk.Canvas(win, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas, padding=(10, 0))
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        level_vars: dict[str, tk.BooleanVar] = {}
+        for level in LEVELS:
+            has_model = (PROJECT_ROOT / MODEL_PATHS[level]).exists()
+            var = tk.BooleanVar(value=not has_model)
+            level_vars[level] = var
+            text = level + ("  (model exists)" if has_model else "")
+            ttk.Checkbutton(inner, text=text, variable=var).pack(anchor="w", pady=2)
+
+        def _start() -> None:
+            selected = [level for level in LEVELS if level_vars[level].get()]
+            if not selected:
+                messagebox.showerror("Nothing selected", "Pick at least one level.")
+                return
+            win.destroy()
+            self._start_auto_train(selected)
+
+        button_row = ttk.Frame(win, padding=10)
+        button_row.pack(fill="x")
+        ttk.Button(button_row, text="Start Queue", command=_start).pack(side="right")
+        ttk.Button(button_row, text="Cancel", command=win.destroy).pack(side="right", padx=6)
+
+    def _start_auto_train(self, levels: list[str]) -> None:
+        self.auto_train_queue = levels
+        self.auto_train_active = True
+        self.auto_train_button.configure(state="disabled")
+        self.stop_auto_train_button.configure(state="normal")
+        self._append_log(f"\n[auto-train] queue ({len(levels)}): {', '.join(levels)}\n")
+        self._advance_auto_train()
+
+    def _advance_auto_train(self) -> None:
+        """Pops the next level off the queue and starts it via the normal
+        _start_training path (so it shares the single process slot, Stop
+        button, and log). Called once to kick off the queue and again from
+        _on_process_done each time a level's subprocess exits."""
+        if not self.auto_train_queue:
+            self._append_log("\n[auto-train] queue complete.\n")
+            self.auto_train_active = False
+            self.auto_train_button.configure(state="normal")
+            self.stop_auto_train_button.configure(state="disabled")
+            self.auto_train_status_var.set("")
+            return
+
+        level = self.auto_train_queue.pop(0)
+        self.auto_train_status_var.set(f"Auto-Train: {len(self.auto_train_queue)} queued after this")
+        self._append_log(f"\n[auto-train] starting {level}\n")
+        self.level_var.set(level)
+        self._on_level_changed()  # reset reward fields to this level's own defaults
+        self._start_training()
+
+    def _stop_auto_train(self) -> None:
+        if not self.auto_train_active:
+            return
+        self.auto_train_queue = []
+        self.auto_train_active = False
+        self.auto_train_button.configure(state="normal")
+        self.stop_auto_train_button.configure(state="disabled")
+        self.auto_train_status_var.set("")
+        self._append_log("\n[auto-train] stopped - queue cleared.\n")
+        if self.process is not None:
+            self._stop_training()
 
     def _start_watching(self) -> None:
         """Launch watch_agent_*.py for the selected level as a foreground
