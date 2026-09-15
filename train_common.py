@@ -32,7 +32,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecFrameStack
 
-from training_utils import EpisodeRecapCallback, OverwriteCheckpointCallback
+from training_utils import EpisodeRecapCallback, OverwriteCheckpointCallback, UnshapedEvalCallback
 
 # Same physical-core reasoning as always: 8 physical cores on this machine,
 # N_ENVS=14 hit a startup race (one worker half-initialized), 12 is the
@@ -79,6 +79,16 @@ def reward_kwargs_from_args(args: argparse.Namespace) -> dict[str, float]:
     return {key: getattr(args, key) for key, _flag in REWARD_KNOB_FLAGS}
 
 
+# All nine reward knobs forced to 0.0, except exploration_cell_size (a
+# bucket-size scale, not a bonus - zeroing it would divide-by-zero in
+# EpisodeStatsWrapper._cell()). Overlaying this on any scenario's env_kwargs
+# yields the scenario's built-in, unshaped reward - used by
+# UnshapedEvalCallback below and reused as-is by ablation.py.
+ZERO_SHAPING_KWARGS: dict[str, float] = {
+    key: 0.0 for key, _flag in REWARD_KNOB_FLAGS if key != "exploration_cell_size"
+}
+
+
 def run_training(
     make_env_fn: Callable,
     env_kwargs: dict,
@@ -89,11 +99,24 @@ def run_training(
     warm_start_path: str | Path | None = None,
     policy: str = "CnnPolicy",
     n_stack: int = 4,
+    eval_freq: int = 50_000,
+    n_eval_episodes: int = 5,
+    seed: int | None = None,
+    history_path: str | Path = "logs/training_history.jsonl",
 ) -> None:
     """The whole training run: build the vec env, resume/warm-start/create the
     model, learn for total_timesteps ADDITIONAL steps, save. `scenario` names
-    the TensorBoard run, the recap history line, and nothing else."""
+    the TensorBoard run, the recap history line, and nothing else.
+
+    eval_freq/n_eval_episodes control UnshapedEvalCallback (see
+    training_utils.py): every eval_freq real timesteps it plays
+    n_eval_episodes deterministic episodes with every reward-shaping knob at
+    0.0, so there's always a shaping-invariant score to compare runs by.
+    seed and history_path exist mainly for ablation.py, which needs
+    reproducible short runs and a history file separate from real training's.
+    """
     model_path = Path(model_path)
+    history_path = Path(history_path)
     print(f"Reward shaping: {env_kwargs}")
     print(f"PPO stability guards: ent_coef={args.ent_coef}, target_kl={args.target_kl}")
 
@@ -101,7 +124,7 @@ def run_training(
     # engine step is CPU-bound (software rendering), so DummyVecEnv's
     # single-process/sequential stepping left most cores idle.
     vec_env = make_vec_env(
-        make_env_fn, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv, env_kwargs=env_kwargs
+        make_env_fn, n_envs=N_ENVS, seed=seed, vec_env_cls=SubprocVecEnv, env_kwargs=env_kwargs
     )
     # Frame-stacking at the vec-env level (not per-env) so each worker ships
     # one (84,84,1) frame across its process pipe per step, not a full stack.
@@ -119,10 +142,20 @@ def run_training(
     )
     recap_callback = EpisodeRecapCallback(
         scenario=scenario,
-        history_path=Path("logs/training_history.jsonl"),
+        history_path=history_path,
+    )
+    eval_callback = UnshapedEvalCallback(
+        scenario=scenario,
+        make_env_fn=make_env_fn,
+        unshaped_env_kwargs={**env_kwargs, **ZERO_SHAPING_KWARGS},
+        history_path=history_path,
+        eval_freq=max(eval_freq // N_ENVS, 1),
+        n_eval_episodes=n_eval_episodes,
+        n_stack=n_stack,
+        verbose=1,
     )
 
-    ppo_overrides = dict(ent_coef=args.ent_coef, target_kl=args.target_kl)
+    ppo_overrides = dict(ent_coef=args.ent_coef, target_kl=args.target_kl, seed=seed)
     if model_path.exists():
         print(f"Resuming from: {model_path}")
         model = PPO.load(
@@ -160,7 +193,7 @@ def run_training(
     model.learn(
         total_timesteps=total_timesteps,
         tb_log_name=scenario,
-        callback=[checkpoint_callback, recap_callback],
+        callback=[checkpoint_callback, recap_callback, eval_callback],
         reset_num_timesteps=reset_num_timesteps,
     )
     model.save(model_path)
