@@ -73,6 +73,7 @@ A small Tkinter UI wraps everything below — pick any of the 14 levels, tweak r
 
 Beyond Start/Stop Training and Watch Agent:
 
+- **Run Ablation** (with a "Timesteps per knob-set" field, default 20000) runs `ablation.py`'s default `no_shaping` vs. `scenario_defaults` comparison for the selected level and prints the table to the log. Shares the Start Training / Stop slot — it also spawns `N_ENVS` `SubprocVecEnv` workers, so it can't run alongside a real training run (or another ablation run) from this window.
 - **Visualize Model** renders the selected level's saved policy architecture as a PNG and shows it inline next to the log.
 - **Export Model** saves the selected level's current model to a file of your choosing — a normal SB3 `.zip` with scenario/timestamp/version metadata embedded, still directly loadable with `PPO.load`.
 - **Import Model** installs an exported file as the selected level's active model (backing up the one it replaces to `models/backups/`). Importing a model exported from a *different* scenario prompts before forcing, since action/observation spaces can differ.
@@ -91,6 +92,8 @@ Every training run (CLI or via `train_ui.py`) ends with a printed recap comparin
 ```
 
 The same line is appended as JSON to `logs/training_history.jsonl`, so past runs' recaps accumulate over time instead of only being visible in that run's console output. Stats are tracked for every scenario regardless of whether its reward-shaping bonuses are on (`envs/common.py`'s `EpisodeStatsWrapper`).
+
+Every run also gets a second, more trustworthy signal for free: every 50k timesteps, `training_utils.UnshapedEvalCallback` plays 5 deterministic episodes with every reward-shaping bonus forced to 0.0 and logs the result (`eval/mean_reward_unshaped` + per-stat) to TensorBoard and as `"kind": "unshaped_eval"` lines in the same `training_history.jsonl` — unlike `ep_rew_mean`, this number only moves when in-game behavior actually changes, not when you tweak a bonus. See "Reward-shaping ablation" below for what uses it.
 
 ### Command line
 
@@ -133,6 +136,15 @@ python export_model.py deadly_corridor --out D:\backups\corridor_v1.zip
 python import_model.py D:\backups\corridor_v1.zip --scenario deadly_corridor
 python export_model.py doom_E1M1               # full levels use doom_<MAP> keys
 ```
+
+Reward-shaping ablation — compare bonus settings on one scenario via short, fixed-seed, from-scratch runs, judged on the unshaped score above instead of the shaped training reward (never touches `models/latest/` or `logs/training_history.jsonl`). Also available as the desktop launcher's **Run Ablation** button, for the default no-`--knobs` comparison:
+
+```powershell
+python ablation.py --scenario deadly_corridor --timesteps 20000
+python ablation.py --scenario health_gathering --knobs my_knobsets.json
+```
+
+Without `--knobs`, it compares `no_shaping` (every bonus off) against `scenario_defaults` (that scenario's own defaults) and prints a comparison table.
 
 ### Auto-resume
 
@@ -181,8 +193,16 @@ export_model.py / import_model.py CLI wrappers around model_io (the UI's
                                    Export/Import buttons run these)
 training_utils.py                 OverwriteCheckpointCallback (single-file
                                    checkpointing) + EpisodeRecapCallback
-                                   (start-vs-end-of-run behavior recap ->
-                                   logs/training_history.jsonl)
+                                   (start-vs-end-of-run behavior recap) +
+                                   UnshapedEvalCallback / evaluate_unshaped
+                                   (periodic all-bonuses-off eval score) ->
+                                   both append to logs/training_history.jsonl
+ablation.py                       Reward-shaping ablation harness: runs one
+                                   scenario from scratch per named knob set,
+                                   short fixed-seed budget, compares on the
+                                   unshaped eval score (models/ablation/,
+                                   logs/ablation_history.jsonl - sandboxed
+                                   away from real training state)
 viz_renders/                      Gitignored output of train_ui.py's
                                    Visualize Model button (regenerated on click)
 setup_env.sh / setup_env.bat      Bootstrap .venv + pip install from scratch
@@ -219,14 +239,14 @@ configs/                          Auto-generated per-process ZDoom ini files
 - **Some scenario cfgs declare `screen_format = GRAY8`** (`rocket_basic`, `simpler_basic`), which arrives single-channel and would crash the grayscale step. `envs/common.py` forces `RGB24` at `gym.make` time for every scenario (a no-op for the rest).
 - **The full-game cfgs enable ViZDoom's audio buffer**, which requires a working OpenAL device and fails at `DoomGame.init()` without one. `envs/doom_level_env.py` disables audio (and automap) buffers; only `basic_audio` keeps audio on, intentionally.
 
-## Future enhancements (ideas, not started)
+## Future enhancements (1-2 done, rest ideas)
 
 Candidate next steps once the remaining scenarios have trained, roughly in value-per-effort order. See `CLAUDE.md` → "Future enhancements" for the fuller reasoning behind each.
 
 | # | Idea | Why |
 |---|---|---|
-| 1 | **Unshaped eval callback** — periodically play a few deterministic episodes with all bonuses off and log the built-in score | `ep_rew_mean` measures shaped reward, so changing a knob moves it even when behavior doesn't; this gives a stable yardstick |
-| 2 | **Shaping ablation harness** — run one scenario N times with different knob sets, fixed seed, short budget; print a comparison table | Replaces hand-tuning nine knobs by trial and error |
+| 1 | ~~**Unshaped eval callback**~~ — **done**, see `training_utils.UnshapedEvalCallback` above | `ep_rew_mean` measures shaped reward, so changing a knob moves it even when behavior doesn't; this gives a stable yardstick |
+| 2 | ~~**Shaping ablation harness**~~ — **done**, see `ablation.py` above | Replaces hand-tuning nine knobs by trial and error |
 | 3 | **Atari-style PPO hyperparameters** — `n_steps≈128–256`, `batch_size=256`, `n_epochs=4`, `clip_range=0.1`, decaying LR | SB3 defaults are tuned for low-dim MuJoCo tasks; with 12 envs the rollout is 24k frames per update |
 | 4 | **Recurrent policy** (`sb3_contrib.RecurrentPPO`, `CnnLstmPolicy`) for `my_way_home`, `health_gathering_supreme`, full levels | Four stacked frames can't remember which corridor was already visited |
 | 5 | **Curriculum for full levels** — start skill 1 / short timeout / near the exit, raise difficulty as eval success climbs | A from-scratch agent never sees the +1000 exit reward on E1M1 otherwise |
@@ -235,7 +255,7 @@ Candidate next steps once the remaining scenarios have trained, roughly in value
 | 8 | **Behavior-cloning warm start from human play** (ViZDoom `SPECTATOR` mode → supervised pretrain → PPO) | Skips the random-wandering phase; bridges supervised learning and RL |
 | 9 | **Experiment hygiene** — eval-episode MP4s, `--seed` flag, leaderboard from `training_history.jsonl` | Keeps many experiments comparable |
 
-Suggested first move: 1 + 3 together, then re-run `defend_the_center` for a trustworthy baseline.
+1 and 2 are implemented (not yet exercised end-to-end against a full scenario on this machine — try `python ablation.py --scenario basic --timesteps 20000` with nothing else training/watching). Suggested next move: 3, then re-run `defend_the_center` for a trustworthy baseline.
 
 ## Related workspace projects
 
