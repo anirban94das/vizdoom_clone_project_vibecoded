@@ -17,10 +17,17 @@ pre-refactor scripts:
 - EpisodeRecapCallback appending one JSON line per run to
   logs/training_history.jsonl.
 
---ent-coef / --target-kl (the PPO policy-collapse guards introduced after the
-deadly_corridor incident where reward crashed from +340 to -46,000) are now
-flags on every scenario; defaults are per-scenario (SB3's own defaults of
-0.0/None everywhere except deadly_corridor, which keeps its 0.01/0.03).
+--ent-coef / --target-kl (the PPO policy-collapse guards) are flags on every
+scenario. --target-kl now defaults to 0.03 everywhere (build_parser), not
+just on deadly_corridor: after switching to PPO_HYPERPARAMS's smaller
+n_steps=128 rollout below, basic.wad hit the same collapse deadly_corridor
+did originally (approx_kl spiked past 1.0, ep_rew_mean crashed from healthy
+positive values to a pinned -300 and never recovered, reproduced twice under
+a fixed seed) - the smaller, noisier rollout makes a single runaway update
+more likely across every scenario, not just deadly_corridor, so every
+scenario now gets the same 0.03 KL circuit breaker by default. --ent-coef
+stays 0.0 by default (deadly_corridor's 0.01 floor-of-exploration override
+is scenario-specific, still set explicitly in its own script).
 
 PPO_HYPERPARAMS below (future-enhancements item 3, "Atari-style PPO
 hyperparameters") applies to every scenario the same way: SB3's own
@@ -98,7 +105,7 @@ REWARD_KNOB_FLAGS = [
 def build_parser(
     reward_defaults: dict[str, float],
     ent_coef: float = 0.0,
-    target_kl: float | None = None,
+    target_kl: float | None = 0.03,
 ) -> argparse.ArgumentParser:
     """Parser with the nine reward-shaping flags (defaults per scenario;
     anything not named in reward_defaults is off) plus the PPO stability

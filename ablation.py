@@ -14,9 +14,14 @@ scratch, never auto-resumed) and history goes to logs/ablation_history.jsonl
 
 Usage:
     python ablation.py --scenario deadly_corridor --timesteps 20000
-    python ablation.py --scenario deadly_corridor --timesteps 20000 --ent-coef 0.01 --target-kl 0.03
+    python ablation.py --scenario deadly_corridor --timesteps 20000 --ent-coef 0.01
     python ablation.py --scenario doom_E1M1 --timesteps 30000
     python ablation.py --scenario health_gathering --knobs my_knobsets.json
+
+--target-kl defaults to 0.03 (matching train_common.build_parser's project-
+wide default - a PPO policy-collapse guard, see train_common.py's module
+docstring); --ent-coef defaults to 0.0 except deadly_corridor's real
+train_*.py script, which uses 0.01.
 
 Without --knobs, compares two configurations: "no_shaping" (every one of the
 nine reward knobs at 0.0) against "scenario_defaults" (that scenario's
@@ -188,7 +193,10 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0,
                          help="fixed seed so knob-sets are compared under identical env/policy randomness")
     parser.add_argument("--ent-coef", type=float, default=0.0)
-    parser.add_argument("--target-kl", type=float, default=None)
+    parser.add_argument("--target-kl", type=float, default=0.03,
+                         help="PPO policy-collapse guard, aborts an update that drifts too far "
+                              "from the rollout policy in one step (default 0.03, matching "
+                              "train_common.build_parser's project-wide default)")
     parser.add_argument("--knobs", type=Path, default=None,
                          help="JSON file of {name: {knob: value, ...}}; default compares "
                               "no_shaping vs scenario_defaults")

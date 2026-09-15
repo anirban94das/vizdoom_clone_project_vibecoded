@@ -9,12 +9,14 @@ final saved model): visual features/aiming/movement carry over, but the
 timestep/TensorBoard counter resets since the reward scale underneath
 changed — expect a visible jump/dip in the reward curve at that handoff.
 
---ent-coef / --target-kl default to 0.01 / 0.03 here (unlike the other
-scenarios' SB3 defaults of 0.0/None): guards against PPO's policy-collapse
-failure mode seen on this scenario (reward crashed from +340 to -46,000
-around step 1.6M and never recovered). ent_coef keeps a floor of
-exploration; target_kl aborts an update that would change the policy too
-much in one step, the suspected collapse mechanism.
+--ent-coef defaults to 0.01 here (unlike every other scenario's 0.0):
+guards against PPO's policy-collapse failure mode first seen on this
+scenario (reward crashed from +340 to -46,000 around step 1.6M and never
+recovered) by keeping a floor of exploration. --target-kl (0.03, aborts an
+update that would change the policy too much in one step - the suspected
+collapse mechanism) is no longer scenario-specific: train_common.build_parser
+now defaults it to 0.03 for every scenario, since the same collapse
+resurfaced on basic.wad after PPO_HYPERPARAMS switched to a smaller rollout.
 
 See train_common.run_training for the shared auto-resume/checkpoint/recap
 behavior. Do not run alongside another train_*.py (8 physical cores).
@@ -43,7 +45,7 @@ REWARD_DEFAULTS = {
 
 
 def main() -> None:
-    args = build_parser(REWARD_DEFAULTS, ent_coef=0.01, target_kl=0.03).parse_args()
+    args = build_parser(REWARD_DEFAULTS, ent_coef=0.01).parse_args()
     run_training(
         make_env_fn=make_deadly_corridor_env,
         env_kwargs=reward_kwargs_from_args(args),
