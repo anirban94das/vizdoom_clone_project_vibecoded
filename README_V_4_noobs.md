@@ -59,6 +59,7 @@ python scenarios/train_doom_level.py --map E1M1   # a real DOOM level
 python scenarios/watch_agent.py            # separate terminal, see it actually play, live
 tensorboard --logdir logs/tensorboard     # reward/loss curves over time
 python export_model.py basic              # / import_model.py <file> --scenario basic
+python ablation.py --scenario basic --timesteps 20000   # see "Future enhancements" #1/#2 below
 ```
 
 ## Where things live
@@ -68,6 +69,7 @@ python export_model.py basic              # / import_model.py <file> --scenario 
 - `scenarios/_bootstrap.py` — tiny helper each scenario script imports first so it can still find `train_common` / `envs` from the subfolder
 - `train_ui.py` — the GUI wrapper around all of the above
 - `model_io.py` + `export_model.py` / `import_model.py` — save a trained model to one file / load one back in (what the UI's Export/Import buttons run)
+- `ablation.py` — runs one level several times from scratch with different bonus settings and prints a table comparing them, using the "fair scorecard" from Future enhancement #1 below (already built)
 - `train_ui.py`'s "Visualize Model" button draws a picture of the network's architecture (layers/shapes) straight from the trained model, not part of training itself
 - `models/latest/` — the one live model file per level; `models/backups/` — what Import replaced; `exports/` — default Export destination
 - `wads/` — where to put `doom.wad` / `doom2.wad` if you own them (Freedoom is the built-in fallback)
@@ -79,10 +81,10 @@ Everything is implemented; most of it hasn't *trained* yet. The plan: run each n
 
 ## Future enhancements (ideas on the shelf)
 
-Things that could make the agent learn better or make experimenting easier, in plain terms. None of these are built yet.
+Things that could make the agent learn better or make experimenting easier, in plain terms. Items 1 and 2 are now built; the rest aren't yet.
 
-1. **A fair scorecard.** Right now the reward curve mixes the game's own score with the bonus points we add for hits, kills, exploring, etc. Change a bonus and the curve moves even if the agent plays exactly the same. The fix is to periodically play a few test episodes with all bonuses switched off and record just the game's own score — like a standardised exam next to the homework marks.
-2. **A "try the knobs" script.** Instead of guessing bonus values one run at a time, run the same level several times with different bonus settings and print a table comparing them on the fair scorecard above.
+1. **A fair scorecard. ✅ Built.** Right now the reward curve mixes the game's own score with the bonus points we add for hits, kills, exploring, etc. Change a bonus and the curve moves even if the agent plays exactly the same. Every training run now periodically plays a few test episodes with all bonuses switched off and records just the game's own score — like a standardised exam next to the homework marks (`training_utils.py`'s `UnshapedEvalCallback`, logged to TensorBoard and `logs/training_history.jsonl`).
+2. **A "try the knobs" script. ✅ Built.** Instead of guessing bonus values one run at a time, `ablation.py` runs the same level several times with different bonus settings and prints a table comparing them on the fair scorecard above (`python ablation.py --scenario <level>`). Hasn't been run start-to-finish against a real level on this machine yet — worth trying with nothing else training or watching at the same time.
 3. **Better default settings for PPO.** The training library's defaults were designed for robot-simulation tasks, not pixel games. The well-known "Atari recipe" (collect fewer frames per update, learn in bigger batches, slowly lower the learning rate) is probably the biggest free improvement available.
 4. **A memory for the maze levels.** The network sees only the last 4 frames — about a tenth of a second. In `my_way_home` or `health_gathering_supreme` it needs to remember "I already checked that corridor." Adding a small memory unit (an LSTM) to the network fixes that.
 5. **Start easy, get harder (curriculum).** A brand-new agent will never reach the exit of a full DOOM level, so it never learns that reaching the exit is the goal. Start at the lowest skill with short episodes (maybe near the exit), and raise the difficulty as it starts succeeding.
@@ -91,4 +93,4 @@ Things that could make the agent learn better or make experimenting easier, in p
 8. **Let a human show it the ropes first.** Record 10–15 minutes of a person playing a level (ViZDoom has a spectator mode for this), teach the network to imitate those moves, *then* hand over to PPO. Skips the long phase where the agent wanders into walls.
 9. **Housekeeping for experiments.** Short video clips of test episodes, a `--seed` option so runs are repeatable, and a simple results table built from `logs/training_history.jsonl`.
 
-Items 6, 7 and 8 are the ones flagged as most interesting to dig into next. Items 1 and 3 together are the sensible first step.
+Items 6, 7 and 8 are the ones flagged as most interesting to dig into next. Items 1 and 2 are done; 3 is the sensible next step.
