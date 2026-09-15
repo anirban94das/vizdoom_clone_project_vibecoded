@@ -73,6 +73,7 @@ A small Tkinter UI wraps everything below — pick any of the 14 levels, tweak r
 
 Beyond Start/Stop Training and Watch Agent:
 
+- **Run Ablation** (with a "Timesteps per knob-set" field, default 20000) runs `ablation.py`'s default `no_shaping` vs. `scenario_defaults` comparison for the selected level and prints the table to the log. Shares the Start Training / Stop slot — it also spawns `N_ENVS` `SubprocVecEnv` workers, so it can't run alongside a real training run (or another ablation run) from this window.
 - **Visualize Model** renders the selected level's saved policy architecture as a PNG and shows it inline next to the log.
 - **Export Model** saves the selected level's current model to a file of your choosing — a normal SB3 `.zip` with scenario/timestamp/version metadata embedded, still directly loadable with `PPO.load`.
 - **Import Model** installs an exported file as the selected level's active model (backing up the one it replaces to `models/backups/`). Importing a model exported from a *different* scenario prompts before forcing, since action/observation spaces can differ.
@@ -136,7 +137,7 @@ python import_model.py D:\backups\corridor_v1.zip --scenario deadly_corridor
 python export_model.py doom_E1M1               # full levels use doom_<MAP> keys
 ```
 
-Reward-shaping ablation — compare bonus settings on one scenario via short, fixed-seed, from-scratch runs, judged on the unshaped score above instead of the shaped training reward (never touches `models/latest/` or `logs/training_history.jsonl`):
+Reward-shaping ablation — compare bonus settings on one scenario via short, fixed-seed, from-scratch runs, judged on the unshaped score above instead of the shaped training reward (never touches `models/latest/` or `logs/training_history.jsonl`). Also available as the desktop launcher's **Run Ablation** button, for the default no-`--knobs` comparison:
 
 ```powershell
 python ablation.py --scenario deadly_corridor --timesteps 20000
