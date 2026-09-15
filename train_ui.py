@@ -2,15 +2,16 @@
 
 Wraps the scenarios/train_*.py / scenarios/watch_agent_*.py entry points (all
 14 levels, incl. the full Doom E1M1 / Doom II MAP01 levels via
-train_doom_level.py --map) and export_model.py / import_model.py as
-subprocesses (they're unmodified — this is just a launcher). Runs the
-project's own .venv interpreter so it doesn't matter which Python started
-this UI. Only one training run is allowed at a time from this window, since
-the train scripts warn against running two simultaneously (each spawns
-N_ENVS SubprocVecEnv worker processes and this machine has 8 physical
-cores). Watching runs as its own independent subprocess (single-process
+train_doom_level.py --map), export_model.py / import_model.py, and
+ablation.py as subprocesses (they're unmodified — this is just a launcher).
+Runs the project's own .venv interpreter so it doesn't matter which Python
+started this UI. Only one training-shaped run is allowed at a time from this
+window — that now covers both "Start Training" and "Run Ablation", since
+both spawn N_ENVS SubprocVecEnv worker processes and this machine has 8
+physical cores; they share one process slot (self.process) and one Stop
+button. Watching runs as its own independent subprocess (single-process
 DummyVecEnv, not SubprocVecEnv) and opens its own foreground ViZDoom window,
-so it can run alongside training without that concern.
+so it can run alongside training/ablation without that concern.
 
 "Visualize Model" is the one feature NOT run as a subprocess: it loads the
 selected level's saved policy and renders its actual CNN architecture with
@@ -472,6 +473,37 @@ class TrainingLauncher(tk.Tk):
             Tooltip(entry_widget, description)
         self._on_level_changed()
 
+        ablation_frame = ttk.LabelFrame(self, text="Reward-shaping ablation", padding=10)
+        ablation_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        self.ablation_button = ttk.Button(
+            ablation_frame, text="Run Ablation", command=self._start_ablation
+        )
+        self.ablation_button.pack(side="left")
+
+        ttk.Label(ablation_frame, text="Timesteps per knob-set:").pack(side="left", padx=(16, 4))
+        self.ablation_timesteps_var = tk.StringVar(value="20000")
+        ttk.Entry(ablation_frame, textvariable=self.ablation_timesteps_var, width=10).pack(
+            side="left"
+        )
+
+        ablation_info = ttk.Label(
+            ablation_frame,
+            text="ⓘ compares no_shaping vs. scenario_defaults, from scratch",
+        )
+        ablation_info.pack(side="left", padx=(16, 0))
+        Tooltip(
+            ablation_info,
+            "Runs the selected level from scratch once with every reward-shaping "
+            "bonus off and once with its own defaults (ignores the Reward shaping "
+            "fields above), then compares them on the unshaped eval score - see "
+            "ablation.py. Shares the Start Training / Stop slot below (also spawns "
+            "N_ENVS SubprocVecEnv workers, so only one of Training/Ablation can run "
+            "at a time). Prints a comparison table to the log when done; models and "
+            "history go under models/ablation/ and logs/ablation_history.jsonl, "
+            "never touching models/latest/ or the real training history.",
+        )
+
         bottom_frame = ttk.Frame(self, padding=(10, 0, 10, 10))
         bottom_frame.pack(fill="both", expand=True)
 
@@ -543,8 +575,49 @@ class TrainingLauncher(tk.Tk):
         threading.Thread(target=self._read_process_output, daemon=True).start()
 
         self.start_button.configure(state="disabled")
+        self.ablation_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
         self.status_var.set(f"Training: {self.level_var.get()}")
+
+    def _start_ablation(self) -> None:
+        """Launch ablation.py for the selected level — compares no_shaping vs.
+        scenario_defaults from scratch on the unshaped eval score (see
+        ablation.py). Shares self.process/Stop with Start Training since it
+        also spawns N_ENVS SubprocVecEnv workers and can't run alongside it."""
+        if self.process is not None:
+            return
+
+        raw_timesteps = self.ablation_timesteps_var.get()
+        try:
+            timesteps = int(raw_timesteps)
+            if timesteps <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror(
+                "Invalid timesteps", f"{raw_timesteps!r} must be a positive integer."
+            )
+            return
+
+        level = self.level_var.get()
+        key = SCENARIO_KEYS[level]
+        command = [self.python_exe, "ablation.py", "--scenario", key, "--timesteps", str(timesteps)]
+        self._append_log(f"$ {' '.join(command)}\n")
+
+        self.process = subprocess.Popen(
+            command,
+            cwd=PROJECT_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        threading.Thread(target=self._read_process_output, daemon=True).start()
+
+        self.start_button.configure(state="disabled")
+        self.ablation_button.configure(state="disabled")
+        self.stop_button.configure(state="normal")
+        self.status_var.set(f"Ablation: {level}")
 
     def _read_process_output(self) -> None:
         assert self.process is not None and self.process.stdout is not None
@@ -573,17 +646,20 @@ class TrainingLauncher(tk.Tk):
         self._append_log("\n[process exited]\n")
         self.process = None
         self.start_button.configure(state="normal")
+        self.ablation_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         self.status_var.set("Idle")
         if self.auto_train_active:
             self._advance_auto_train()
 
     def _stop_training(self) -> None:
+        """Stops whichever training-shaped run is in self.process — Start
+        Training or Run Ablation, they share this slot and this button."""
         if self.process is None:
             return
-        # taskkill /T kills the whole process tree — needed because
-        # train_*.py itself spawns SubprocVecEnv worker processes that a
-        # plain terminate()/Ctrl+C on just the parent PID would orphan.
+        # taskkill /T kills the whole process tree — needed because both
+        # train_*.py and ablation.py spawn SubprocVecEnv worker processes
+        # that a plain terminate()/Ctrl+C on just the parent PID would orphan.
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
             capture_output=True,
