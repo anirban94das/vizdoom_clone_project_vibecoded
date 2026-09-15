@@ -21,6 +21,16 @@ pre-refactor scripts:
 deadly_corridor incident where reward crashed from +340 to -46,000) are now
 flags on every scenario; defaults are per-scenario (SB3's own defaults of
 0.0/None everywhere except deadly_corridor, which keeps its 0.01/0.03).
+
+PPO_HYPERPARAMS below (future-enhancements item 3, "Atari-style PPO
+hyperparameters") applies to every scenario the same way: SB3's own
+defaults (n_steps=2048, batch_size=64, n_epochs=10, clip_range=0.2, constant
+learning_rate=3e-4) were tuned for MuJoCo-style low-dimensional
+continuous-control tasks. Every scenario here is pixel input -> CNN ->
+discrete actions instead - architecturally the same as Atari, not MuJoCo -
+so this borrows the hyperparameter recipe from the original PPO paper /
+OpenAI Baselines' Atari config (the same one stable-baselines3-zoo's
+atari.yml uses) rather than SB3's generic defaults.
 """
 
 import argparse
@@ -38,6 +48,35 @@ from training_utils import EpisodeRecapCallback, OverwriteCheckpointCallback, Un
 # N_ENVS=14 hit a startup race (one worker half-initialized), 12 is the
 # throughput/stability sweet spot.
 N_ENVS = 12
+
+
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """Linearly anneals from initial_value at the start of training to 0.0 at
+    the end. SB3 accepts a callable for `learning_rate` and calls it with
+    progress_remaining going from 1.0 (start) to 0.0 (end) - the Atari-recipe
+    learning-rate schedule below uses this instead of a constant rate."""
+    def schedule(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return schedule
+
+
+# Atari-style PPO hyperparameters (see the module docstring for why "Atari"
+# is the right recipe to borrow here, not SB3's MuJoCo-tuned defaults). With
+# N_ENVS=12 fixed, SB3's own n_steps=2048 default meant a 24,576-step
+# rollout collected under a frozen policy before a single gradient update -
+# these values refresh the policy roughly 16x more often (128*12=1,536 steps
+# per rollout) with each update trained on less stale (closer-to-on-policy)
+# data, and the tighter clip_range adds a second brake on top of that.
+# Applies to every scenario via ppo_overrides below - no per-scenario change
+# needed. Safe to apply on top of an existing checkpoint: these are training
+# hyperparameters, not part of the saved network's architecture.
+PPO_HYPERPARAMS: dict[str, object] = dict(
+    n_steps=128,
+    batch_size=256,
+    n_epochs=4,
+    clip_range=0.1,
+    learning_rate=linear_schedule(2.5e-4),
+)
 
 # The nine reward-shaping knobs every scenario exposes, as
 # (env-factory kwarg, CLI flag) pairs. train_ui.py passes all of them to
@@ -119,6 +158,9 @@ def run_training(
     history_path = Path(history_path)
     print(f"Reward shaping: {env_kwargs}")
     print(f"PPO stability guards: ent_coef={args.ent_coef}, target_kl={args.target_kl}")
+    print(f"PPO hyperparameters (Atari-style): n_steps={PPO_HYPERPARAMS['n_steps']}, "
+          f"batch_size={PPO_HYPERPARAMS['batch_size']}, n_epochs={PPO_HYPERPARAMS['n_epochs']}, "
+          f"clip_range={PPO_HYPERPARAMS['clip_range']}")
 
     # SubprocVecEnv runs each ViZDoom instance in its own process. ViZDoom's
     # engine step is CPU-bound (software rendering), so DummyVecEnv's
@@ -155,7 +197,9 @@ def run_training(
         verbose=1,
     )
 
-    ppo_overrides = dict(ent_coef=args.ent_coef, target_kl=args.target_kl, seed=seed)
+    ppo_overrides = dict(
+        ent_coef=args.ent_coef, target_kl=args.target_kl, seed=seed, **PPO_HYPERPARAMS
+    )
     if model_path.exists():
         print(f"Resuming from: {model_path}")
         model = PPO.load(

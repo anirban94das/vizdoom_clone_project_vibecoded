@@ -239,7 +239,7 @@ configs/                          Auto-generated per-process ZDoom ini files
 - **Some scenario cfgs declare `screen_format = GRAY8`** (`rocket_basic`, `simpler_basic`), which arrives single-channel and would crash the grayscale step. `envs/common.py` forces `RGB24` at `gym.make` time for every scenario (a no-op for the rest).
 - **The full-game cfgs enable ViZDoom's audio buffer**, which requires a working OpenAL device and fails at `DoomGame.init()` without one. `envs/doom_level_env.py` disables audio (and automap) buffers; only `basic_audio` keeps audio on, intentionally.
 
-## Future enhancements (1-2 done, rest ideas)
+## Future enhancements (1-3 done, rest ideas)
 
 Candidate next steps once the remaining scenarios have trained, roughly in value-per-effort order. See `CLAUDE.md` → "Future enhancements" for the fuller reasoning behind each.
 
@@ -247,7 +247,7 @@ Candidate next steps once the remaining scenarios have trained, roughly in value
 |---|---|---|
 | 1 | ~~**Unshaped eval callback**~~ — **done**, see `training_utils.UnshapedEvalCallback` above | `ep_rew_mean` measures shaped reward, so changing a knob moves it even when behavior doesn't; this gives a stable yardstick |
 | 2 | ~~**Shaping ablation harness**~~ — **done**, see `ablation.py` above | Replaces hand-tuning nine knobs by trial and error |
-| 3 | **Atari-style PPO hyperparameters** — `n_steps≈128–256`, `batch_size=256`, `n_epochs=4`, `clip_range=0.1`, decaying LR | SB3 defaults are tuned for low-dim MuJoCo tasks; with 12 envs the rollout is 24k frames per update |
+| 3 | ~~**Atari-style PPO hyperparameters**~~ — **done**, see `train_common.PPO_HYPERPARAMS` | SB3 defaults are tuned for low-dim MuJoCo tasks; with 12 envs the rollout is 24k frames per update |
 | 4 | **Recurrent policy** (`sb3_contrib.RecurrentPPO`, `CnnLstmPolicy`) for `my_way_home`, `health_gathering_supreme`, full levels | Four stacked frames can't remember which corridor was already visited |
 | 5 | **Curriculum for full levels** — start skill 1 / short timeout / near the exit, raise difficulty as eval success climbs | A from-scratch agent never sees the +1000 exit reward on E1M1 otherwise |
 | 6 | **Game-variable HUD vector alongside pixels** (`HEALTH`, ammo, kills…) via `MultiInputPolicy` | Stops the CNN having to learn to read on-screen numbers; reuses `basic_audio`'s Dict-obs plumbing |
@@ -255,7 +255,7 @@ Candidate next steps once the remaining scenarios have trained, roughly in value
 | 8 | **Behavior-cloning warm start from human play** (ViZDoom `SPECTATOR` mode → supervised pretrain → PPO) | Skips the random-wandering phase; bridges supervised learning and RL |
 | 9 | **Experiment hygiene** — eval-episode MP4s, `--seed` flag, leaderboard from `training_history.jsonl` | Keeps many experiments comparable |
 
-1 and 2 are implemented (not yet exercised end-to-end against a full scenario on this machine — try `python ablation.py --scenario basic --timesteps 20000` with nothing else training/watching). Suggested next move: 3, then re-run `defend_the_center` for a trustworthy baseline.
+1, 2, and 3 are implemented. 1 and 2 haven't been exercised end-to-end against a full scenario on this machine yet — try `python ablation.py --scenario basic --timesteps 20000` with nothing else training/watching. 3 (the new PPO hyperparameters) takes effect automatically on the next real `python scenarios/train_*.py` run — nothing extra to do to try it. Suggested next move: re-run `defend_the_center` under the new hyperparameters for a trustworthy baseline, then item 4.
 
 ## Related workspace projects
 
