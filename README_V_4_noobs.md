@@ -47,7 +47,7 @@ Easiest path — a small desktop UI:
 ```
 Pick any of the 14 levels, tweak reward-bonus values if you want, hit Start Training / Watch Agent. Four more buttons:
 
-- **Run Ablation** — runs that "try the knobs" script from Future enhancement #2 below for the selected level, right from the UI (enter how many timesteps per knob-set first). Can't run at the same time as Start Training — they both need the whole machine's worth of parallel game instances, so it's the same Stop button for either.
+- **Run Ablation** — runs that "try the knobs" script from Future enhancement #2 below for the selected level, right from the UI (enter how many timesteps per knob-set first). Can't run at the same time as Start Training — they both need the whole machine's worth of parallel game instances, so it's the same Stop button for either. A **Stop Ablation** button sits right next to it too, in case the top Stop button isn't obvious from here — both do the exact same thing, Stop Ablation just only lights up while an ablation run is actually going.
 - **Visualize Model** — draws a picture of the neural network itself (what layers it has, how big) from that level's saved model, right there next to the log.
 - **Export Model** — saves the current model to a single file you can back up or share.
 - **Import Model** — loads such a file back in as that level's active model (the old one is backed up automatically, and it warns you if the file came from a different level).

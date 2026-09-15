@@ -73,7 +73,7 @@ A small Tkinter UI wraps everything below — pick any of the 14 levels, tweak r
 
 Beyond Start/Stop Training and Watch Agent:
 
-- **Run Ablation** (with a "Timesteps per knob-set" field, default 20000) runs `ablation.py`'s default `no_shaping` vs. `scenario_defaults` comparison for the selected level and prints the table to the log. Shares the Start Training / Stop slot — it also spawns `N_ENVS` `SubprocVecEnv` workers, so it can't run alongside a real training run (or another ablation run) from this window.
+- **Run Ablation** / **Stop Ablation** (with a "Timesteps per knob-set" field, default 20000) runs `ablation.py`'s default `no_shaping` vs. `scenario_defaults` comparison for the selected level and prints the table to the log. Shares the Start Training / Stop slot — it also spawns `N_ENVS` `SubprocVecEnv` workers, so it can't run alongside a real training run (or another ablation run) from this window. Stop Ablation only enables during an ablation run (the top-row Stop button works for either).
 - **Visualize Model** renders the selected level's saved policy architecture as a PNG and shows it inline next to the log.
 - **Export Model** saves the selected level's current model to a file of your choosing — a normal SB3 `.zip` with scenario/timestamp/version metadata embedded, still directly loadable with `PPO.load`.
 - **Import Model** installs an exported file as the selected level's active model (backing up the one it replaces to `models/backups/`). Importing a model exported from a *different* scenario prompts before forcing, since action/observation spaces can differ.

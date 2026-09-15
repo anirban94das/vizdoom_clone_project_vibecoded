@@ -326,6 +326,7 @@ class TrainingLauncher(tk.Tk):
 
         self.python_exe = resolve_python()
         self.process: subprocess.Popen | None = None
+        self.process_kind: str | None = None  # "training" or "ablation" — which one owns self.process
         self.watch_process: subprocess.Popen | None = None
         self.visualize_busy = False  # True while _render_cnn's background thread runs
         self.output_queue: queue.Queue[str] = queue.Queue()
@@ -452,6 +453,11 @@ class TrainingLauncher(tk.Tk):
         )
         self.ablation_button.pack(side="left")
 
+        self.stop_ablation_button = ttk.Button(
+            ablation_frame, text="Stop Ablation", command=self._stop_training, state="disabled"
+        )
+        self.stop_ablation_button.pack(side="left", padx=(4, 0))
+
         ttk.Label(ablation_frame, text="Timesteps per knob-set:").pack(side="left", padx=(16, 4))
         self.ablation_timesteps_var = tk.StringVar(value="20000")
         ttk.Entry(ablation_frame, textvariable=self.ablation_timesteps_var, width=10).pack(
@@ -545,6 +551,7 @@ class TrainingLauncher(tk.Tk):
         )
         threading.Thread(target=self._read_process_output, daemon=True).start()
 
+        self.process_kind = "training"
         self.start_button.configure(state="disabled")
         self.ablation_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
@@ -585,8 +592,10 @@ class TrainingLauncher(tk.Tk):
         )
         threading.Thread(target=self._read_process_output, daemon=True).start()
 
+        self.process_kind = "ablation"
         self.start_button.configure(state="disabled")
         self.ablation_button.configure(state="disabled")
+        self.stop_ablation_button.configure(state="normal")
         self.stop_button.configure(state="normal")
         self.status_var.set(f"Ablation: {level}")
 
@@ -616,14 +625,18 @@ class TrainingLauncher(tk.Tk):
     def _on_process_done(self) -> None:
         self._append_log("\n[process exited]\n")
         self.process = None
+        self.process_kind = None
         self.start_button.configure(state="normal")
         self.ablation_button.configure(state="normal")
+        self.stop_ablation_button.configure(state="disabled")
         self.stop_button.configure(state="disabled")
         self.status_var.set("Idle")
 
     def _stop_training(self) -> None:
-        """Stops whichever training-shaped run is in self.process — Start
-        Training or Run Ablation, they share this slot and this button."""
+        """Stops whichever training-shaped run is in self.process (see
+        self.process_kind) - Start Training's Stop button and the ablation
+        panel's Stop Ablation button both call this, since Training and
+        Ablation share this one process slot."""
         if self.process is None:
             return
         # taskkill /T kills the whole process tree — needed because both
